@@ -1,0 +1,4 @@
+# config/settings.py
+
+SNAPSHOT_TIME_WINDOW_MINUTES = 25
+LOG_LEVEL = "INFO"
