@@ -73,8 +73,8 @@ def abnormal_heatmap_by_product_date(
     return clean_float_json(df)
 
 
-# ✅ 5. 产品异常统计图
-@app.get("/summary/abnormal-by-product")
+# ✅ 5. 产品异常批次统计图
+@app.get("/summary/abnormal-batches-by-product")
 def abnormal_by_product(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
@@ -83,7 +83,7 @@ def abnormal_by_product(
     product_id: Optional[int] = Query(None),
     batch_id: Optional[int] = Query(None)
 ):
-    df = summary_service.get_abnormal_by_product(start_date, end_date, team_id, shift_id, product_id, batch_id)
+    df = summary_service.get_abnormal_batches_by_product(start_date, end_date, team_id, shift_id, product_id, batch_id)
     return clean_float_json(df)
 
 
@@ -98,4 +98,17 @@ def inspection_count_by_personnel_field_level(
     batch_id: Optional[int] = Query(None)
 ):
     df = summary_service.get_inspection_count_by_personnel_field_level(start_date, end_date, team_id, shift_id, product_id, batch_id)
+    return clean_float_json(df)
+
+# ✅ 7. 异常字段比例（合并 Others）
+@app.get("/summary/abnormal-ratio-by-field-grouped")
+def abnormal_ratio_by_field_grouped_other(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    team_id: Optional[int] = Query(None),
+    shift_id: Optional[int] = Query(None),
+    product_id: Optional[int] = Query(None),
+    batch_id: Optional[int] = Query(None)
+):
+    df = summary_service.get_abnormal_ratio_by_field_grouped_other(start_date, end_date, team_id, shift_id, product_id, batch_id)
     return clean_float_json(df)

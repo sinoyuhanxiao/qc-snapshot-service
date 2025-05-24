@@ -3,47 +3,50 @@ from sqlalchemy import text
 import pandas as pd
 from db.postgres import pg_engine as engine
 
-# 通用 WHERE 条件构造
-
-def build_filter_conditions_for_general():
-    return """
-        (:start_date IS NULL OR base.snapshot_time::date >= :start_date)
-        AND (:end_date IS NULL OR base.snapshot_time::date <= :end_date)
-        AND (:team_id IS NULL OR team.team_id = :team_id)
-        AND (:shift_id IS NULL OR shift.shift_id = :shift_id)
-        AND (:product_id IS NULL OR product.product_id = :product_id)
-        AND (:batch_id IS NULL OR batch.batch_id = :batch_id)
-    """
-def build_filter_conditions_for_team():
-    return """
-        (:start_date IS NULL OR base.snapshot_time::date >= :start_date)
-        AND (:end_date IS NULL OR base.snapshot_time::date <= :end_date)
-        AND (:team_id IS NULL OR st.team_id = :team_id)
-        AND (:shift_id IS NULL OR shift.shift_id = :shift_id)
-        AND (:product_id IS NULL OR product.product_id = :product_id)
-        AND (:batch_id IS NULL OR batch.batch_id = :batch_id)
-    """
-
 # 1. 批次合格率每日趋势
-
 def get_pass_rate_by_day(start_date: Optional[str], end_date: Optional[str],
                          team_id: Optional[int], shift_id: Optional[int],
                          product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
+    joins = [
+        "JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id",
+        "JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id"
+    ]
+    where = []
+
+    if start_date:
+        where.append("base.snapshot_time::date >= :start_date")
+    if end_date:
+        where.append("base.snapshot_time::date <= :end_date")
+
+    if team_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_team st ON base.id = st.snapshot_id")
+        where.append("st.team_id = :team_id")
+
+    if shift_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_shift ss ON base.id = ss.snapshot_id")
+        where.append("ss.shift_id = :shift_id")
+
+    if product_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id")
+        where.append("sp.product_id = :product_id")
+
+    if batch_id is not None:
+        where.append("sb.batch_id = :batch_id")
+
+    join_clause = "\n".join(joins)
+    where_clause = " AND ".join(where) if where else "1=1"
+
     sql = f"""
         SELECT base.snapshot_time::date AS snapshot_date,
-               COUNT(DISTINCT batch.batch_id) AS total_batches,
-               COUNT(DISTINCT CASE WHEN item.abnormal_count > 0 THEN batch.batch_id END) AS abnormal_batches,
+               COUNT(DISTINCT sb.batch_id) AS total_batches,
+               COUNT(DISTINCT CASE WHEN i.abnormal_count > 0 THEN sb.batch_id END) AS abnormal_batches,
                ROUND(
-                   1 - COUNT(DISTINCT CASE WHEN item.abnormal_count > 0 THEN batch.batch_id END)::decimal /
-                       NULLIF(COUNT(DISTINCT batch.batch_id), 0), 4
+                   1.0 - COUNT(DISTINCT CASE WHEN i.abnormal_count > 0 THEN sb.batch_id END)::decimal /
+                   NULLIF(COUNT(DISTINCT sb.batch_id), 0), 4
                ) AS pass_rate
         FROM quality_management.qc_snapshot_base base
-        JOIN quality_management.qc_snapshot_item item ON base.id = item.snapshot_id
-        LEFT JOIN quality_management.qc_snapshot_team team ON base.id = team.snapshot_id
-        LEFT JOIN quality_management.qc_snapshot_shift shift ON base.id = shift.snapshot_id
-        LEFT JOIN quality_management.qc_snapshot_product product ON base.id = product.snapshot_id
-        LEFT JOIN quality_management.qc_snapshot_batch batch ON base.id = batch.snapshot_id
-        WHERE {build_filter_conditions_for_general()}
+        {join_clause}
+        WHERE {where_clause}
         GROUP BY base.snapshot_time::date
         ORDER BY base.snapshot_time::date
     """
@@ -62,9 +65,9 @@ def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
     where = []
 
     if start_date:
-        where.append("b.snapshot_time >= :start_date")
+        where.append("b.snapshot_time::date >= :start_date")
     if end_date:
-        where.append("b.snapshot_time <= :end_date")
+        where.append("b.snapshot_time::date <= :end_date")
 
     if team_id is not None:
         where.append("st.team_id = :team_id")
@@ -89,8 +92,9 @@ def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
             st.team_id,
             st.team_name,
             t.parent_id,
-            SUM(i.total_count) AS total_fields,
             SUM(i.abnormal_count) AS abnormal_fields,
+            SUM(i.total_count) - SUM(i.abnormal_count) AS normal_fields,
+            SUM(i.total_count) AS total_fields,
             ROUND(
                 1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
             ) AS pass_rate
@@ -98,11 +102,12 @@ def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
         {join_clause}
         WHERE {where_clause}
         GROUP BY st.team_id, st.team_name, t.parent_id
-        ORDER BY st.team_name
+        ORDER BY ROUND(
+                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
+            ) DESC
     """
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
-
 
 def get_abnormal_ratio_by_field(start_date: Optional[str], end_date: Optional[str],
                                 team_id: Optional[int], shift_id: Optional[int],
@@ -113,9 +118,9 @@ def get_abnormal_ratio_by_field(start_date: Optional[str], end_date: Optional[st
     where = []
 
     if start_date:
-        where.append("b.snapshot_time >= :start_date")
+        where.append("b.snapshot_time::date >= :start_date")
     if end_date:
-        where.append("b.snapshot_time <= :end_date")
+        where.append("b.snapshot_time::date <= :end_date")
 
     if team_id is not None:
         joins.append("JOIN quality_management.qc_snapshot_team st ON i.snapshot_id = st.snapshot_id")
@@ -149,10 +154,71 @@ def get_abnormal_ratio_by_field(start_date: Optional[str], end_date: Optional[st
         {join_clause}
         WHERE {where_clause}
         GROUP BY i.key, i.label
-        ORDER BY abnormal_percentage DESC
+        ORDER BY abnormal_count DESC
     """
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
+
+def get_abnormal_ratio_by_field_grouped_other(start_date: Optional[str], end_date: Optional[str],
+                                              team_id: Optional[int], shift_id: Optional[int],
+                                              product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
+    joins = [
+        "JOIN quality_management.qc_snapshot_base b ON i.snapshot_id = b.id"
+    ]
+    where = []
+
+    if start_date:
+        where.append("b.snapshot_time::date >= :start_date")
+    if end_date:
+        where.append("b.snapshot_time::date <= :end_date")
+    if team_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_team st ON i.snapshot_id = st.snapshot_id")
+        where.append("st.team_id = :team_id")
+    if shift_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_shift ss ON i.snapshot_id = ss.snapshot_id")
+        where.append("ss.shift_id = :shift_id")
+    if product_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_product sp ON i.snapshot_id = sp.snapshot_id")
+        where.append("sp.product_id = :product_id")
+    if batch_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_batch sb ON i.snapshot_id = sb.snapshot_id")
+        where.append("sb.batch_id = :batch_id")
+
+    join_clause = "\n".join(joins)
+    where_clause = " AND ".join(where) if where else "1=1"
+
+    sql = f"""
+        SELECT 
+            i.key,
+            i.label,
+            SUM(i.abnormal_count) AS abnormal_count
+        FROM quality_management.qc_snapshot_item i
+        {join_clause}
+        WHERE {where_clause}
+        GROUP BY i.key, i.label
+        ORDER BY abnormal_count DESC
+    """
+    with engine.connect() as conn:
+        df = pd.read_sql(text(sql), conn, params=locals())
+
+    total = df['abnormal_count'].sum()
+    df['percentage'] = df['abnormal_count'] / total
+
+    above_20 = df[df['percentage'] >= 0.1][['key', 'label', 'abnormal_count']]
+    below_20 = df[df['percentage'] < 0.1]
+
+    if not below_20.empty:
+        other_sum = below_20['abnormal_count'].sum()
+        other_row = pd.DataFrame([{
+            'key': None,
+            'label': '其他',
+            'abnormal_count': other_sum
+        }])
+        result_df = pd.concat([above_20, other_row], ignore_index=True)
+    else:
+        result_df = above_20
+
+    return result_df
 
 def get_abnormal_heatmap_by_product_date(start_date: Optional[str], end_date: Optional[str],
                                           team_id: Optional[int], shift_id: Optional[int],
@@ -201,7 +267,7 @@ def get_abnormal_heatmap_by_product_date(start_date: Optional[str], end_date: Op
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
 
-def get_abnormal_by_product(start_date: Optional[str], end_date: Optional[str],
+def get_abnormal_batches_by_product(start_date: Optional[str], end_date: Optional[str],
                             team_id: Optional[int], shift_id: Optional[int],
                             product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     joins = [
@@ -212,9 +278,9 @@ def get_abnormal_by_product(start_date: Optional[str], end_date: Optional[str],
     where = []
 
     if start_date:
-        where.append("base.snapshot_time >= :start_date")
+        where.append("base.snapshot_time::date >= :start_date")
     if end_date:
-        where.append("base.snapshot_time <= :end_date")
+        where.append("base.snapshot_time::date <= :end_date")
 
     if team_id is not None:
         joins.append("JOIN quality_management.qc_snapshot_team st ON base.id = st.snapshot_id")
@@ -317,10 +383,10 @@ if __name__ == "__main__":
     df = get_pass_rate_by_day(
         start_date="2025-05-01",
         end_date="2025-05-31",
-        team_id=136,
-        shift_id=1,
-        product_id=28,
-        batch_id=2
+        team_id=None,
+        shift_id=None,
+        product_id=None,
+        batch_id=None
     )
 
     print("批次合格率每日趋势结果：")
@@ -330,9 +396,9 @@ if __name__ == "__main__":
         start_date="2025-05-01",
         end_date="2025-05-31",
         team_id=None,
-        shift_id=1,
-        product_id=16,
-        batch_id=14
+        shift_id=None,
+        product_id=None,
+        batch_id=None
     )
 
     print("班组异常字段总数：")
@@ -341,8 +407,8 @@ if __name__ == "__main__":
     df3 = get_abnormal_ratio_by_field(
         "2025-05-01",
         "2025-05-31",
-        team_id=157,
-        shift_id=1,
+        team_id=None,
+        shift_id=None,
         product_id=None,
         batch_id=None
     )
@@ -362,16 +428,16 @@ if __name__ == "__main__":
     print("产品 × 字段 异常热力图：")
     print(df4)
 
-    df5 = get_abnormal_by_product(
+    df5 = get_abnormal_batches_by_product(
         start_date="2025-05-01",
         end_date="2025-05-31",
         team_id=None,
-        shift_id=1,
-        product_id=16,
+        shift_id=None,
+        product_id=None,
         batch_id=None
     )
 
-    print("产品异常统计图：")
+    print("产品批次异常统计图：")
     print(df5)
 
     df6 = get_inspection_count_by_personnel_field_level(
@@ -385,3 +451,16 @@ if __name__ == "__main__":
 
     print("人员质检字段数量对比：")
     print(df6)
+
+    df3_5 = get_abnormal_ratio_by_field_grouped_other(
+        start_date="2025-05-01",
+        end_date="2025-05-31",
+        team_id=None,
+        shift_id=None,
+        product_id=None,
+        batch_id=None
+    )
+
+    print("异常类型占比饼图 升级版：")
+    print(df3_5)
+

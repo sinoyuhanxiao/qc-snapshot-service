@@ -89,8 +89,9 @@ def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
             st.team_id,
             st.team_name,
             t.parent_id,
-            SUM(i.total_count) AS total_fields,
             SUM(i.abnormal_count) AS abnormal_fields,
+            SUM(i.total_count) - SUM(i.abnormal_count) AS normal_count,
+            SUM(i.total_count) AS total_fields,
             ROUND(
                 1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
             ) AS pass_rate
@@ -98,7 +99,9 @@ def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
         {join_clause}
         WHERE {where_clause}
         GROUP BY st.team_id, st.team_name, t.parent_id
-        ORDER BY st.team_name
+        ORDER BY ROUND(
+                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
+            ) DESC
     """
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
@@ -140,8 +143,9 @@ def get_abnormal_ratio_by_field(start_date: Optional[str], end_date: Optional[st
         SELECT 
             i.key,
             i.label,
-            SUM(i.total_count) AS total_count,
-            SUM(i.abnormal_count) AS abnormal_count,
+            SUM(i.abnormal_count) AS abnormal_fields,
+            SUM(i.total_count) - SUM(i.abnormal_count) AS normal_fields,
+            SUM(i.total_count) AS total_fields,
             ROUND(
                 SUM(i.abnormal_count) * 100.0 / NULLIF(SUM(i.total_count), 0), 2
             ) AS abnormal_percentage
@@ -201,7 +205,7 @@ def get_abnormal_heatmap_by_product_date(start_date: Optional[str], end_date: Op
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
 
-def get_abnormal_by_product(start_date: Optional[str], end_date: Optional[str],
+def get_abnormal_batches_by_product(start_date: Optional[str], end_date: Optional[str],
                             team_id: Optional[int], shift_id: Optional[int],
                             product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     joins = [
@@ -317,10 +321,10 @@ if __name__ == "__main__":
     df = get_pass_rate_by_day(
         start_date="2025-05-01",
         end_date="2025-05-31",
-        team_id=136,
-        shift_id=1,
-        product_id=28,
-        batch_id=2
+        team_id=None,
+        shift_id=None,
+        product_id=None,
+        batch_id=None
     )
 
     print("批次合格率每日趋势结果：")
@@ -330,9 +334,9 @@ if __name__ == "__main__":
         start_date="2025-05-01",
         end_date="2025-05-31",
         team_id=None,
-        shift_id=1,
-        product_id=16,
-        batch_id=14
+        shift_id=None,
+        product_id=None,
+        batch_id=None
     )
 
     print("班组异常字段总数：")
@@ -341,8 +345,8 @@ if __name__ == "__main__":
     df3 = get_abnormal_ratio_by_field(
         "2025-05-01",
         "2025-05-31",
-        team_id=157,
-        shift_id=1,
+        team_id=None,
+        shift_id=None,
         product_id=None,
         batch_id=None
     )
@@ -362,12 +366,12 @@ if __name__ == "__main__":
     print("产品 × 字段 异常热力图：")
     print(df4)
 
-    df5 = get_abnormal_by_product(
+    df5 = get_abnormal_batches_by_product(
         start_date="2025-05-01",
         end_date="2025-05-31",
         team_id=None,
-        shift_id=1,
-        product_id=16,
+        shift_id=None,
+        product_id=None,
         batch_id=None
     )
 
