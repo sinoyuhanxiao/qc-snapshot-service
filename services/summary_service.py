@@ -355,16 +355,113 @@ def get_inspection_count_by_personnel_field_level(start_date: Optional[str], end
         SELECT
             ins.inspector_id,
             ins.inspector_name,
-            COUNT(*) AS inspection_count,
+            SUM(i.total_count) AS inspection_count,
+            SUM(i.total_count) - SUM(i.abnormal_count) AS normal_count,
             SUM(i.abnormal_count) AS abnormal_count,
             ROUND(
-                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(COUNT(*), 0), 4
+                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
             ) AS pass_rate
         FROM quality_management.qc_snapshot_base base
         {join_clause}
         WHERE {where_clause}
         GROUP BY ins.inspector_id, ins.inspector_name
         ORDER BY inspection_count DESC
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=locals())
+
+def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
+                           team_id: Optional[int], shift_id: Optional[int],
+                           product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
+    join_clause = """
+        JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id
+        JOIN quality_management.qc_snapshot_inspector ins ON base.id = ins.snapshot_id
+        JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id
+    """
+    where_clause = []
+    if start_date:
+        where_clause.append("base.snapshot_time::date >= :start_date")
+    if end_date:
+        where_clause.append("base.snapshot_time::date <= :end_date")
+    if team_id is not None:
+        join_clause += "\nJOIN quality_management.qc_snapshot_team st ON base.id = st.snapshot_id"
+        where_clause.append("st.team_id = :team_id")
+    if shift_id is not None:
+        join_clause += "\nJOIN quality_management.qc_snapshot_shift ss ON base.id = ss.snapshot_id"
+        where_clause.append("ss.shift_id = :shift_id")
+    if product_id is not None:
+        join_clause += "\nJOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id"
+        where_clause.append("sp.product_id = :product_id")
+    if batch_id is not None:
+        where_clause.append("sb.batch_id = :batch_id")
+
+    where_sql = " AND ".join(where_clause) if where_clause else "1=1"
+
+    sql = f"""
+        SELECT 
+            COUNT(DISTINCT sb.batch_id) AS total_batches,
+            COUNT(DISTINCT CASE WHEN i.abnormal_count > 0 THEN sb.batch_id END) AS abnormal_batches,
+            ROUND(
+                1.0 - COUNT(DISTINCT CASE WHEN i.abnormal_count > 0 THEN sb.batch_id END)::decimal /
+                NULLIF(COUNT(DISTINCT sb.batch_id), 0), 4
+            ) AS batch_pass_rate,
+            COUNT(DISTINCT ins.inspector_id) AS total_personnel,
+            SUM(i.total_count) AS total_items,
+            SUM(i.abnormal_count) AS abnormal_items,
+            ROUND(
+                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
+            ) AS item_pass_rate
+        FROM quality_management.qc_snapshot_base base
+        {join_clause}
+        WHERE {where_sql}
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=locals())
+
+def get_kpi_by_inspector(start_date: Optional[str], end_date: Optional[str],
+                         team_id: Optional[int], shift_id: Optional[int],
+                         product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
+    joins = [
+        "JOIN quality_management.qc_snapshot_inspector ins ON base.id = ins.snapshot_id",
+        "JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id"
+    ]
+    where = []
+
+    if start_date:
+        where.append("base.snapshot_time::date >= :start_date")
+    if end_date:
+        where.append("base.snapshot_time::date <= :end_date")
+    if team_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_team st ON base.id = st.snapshot_id")
+        where.append("st.team_id = :team_id")
+    if shift_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_shift ss ON base.id = ss.snapshot_id")
+        where.append("ss.shift_id = :shift_id")
+    if product_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id")
+        where.append("sp.product_id = :product_id")
+    if batch_id is not None:
+        joins.append("JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id")
+        where.append("sb.batch_id = :batch_id")
+
+    join_clause = "\n".join(joins)
+    where_clause = " AND ".join(where) if where else "1=1"
+
+    sql = f"""
+        SELECT
+            ins.inspector_id,
+            ins.inspector_name,
+            COUNT(DISTINCT base.id) AS forms_submitted,
+            SUM(i.total_count) AS total_items_checked,
+            SUM(i.abnormal_count) AS abnormal_items,
+            ROUND(
+                SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
+            ) AS abnormal_rate
+        FROM quality_management.qc_snapshot_base base
+        {join_clause}
+        WHERE {where_clause}
+        GROUP BY ins.inspector_id, ins.inspector_name
+        ORDER BY forms_submitted DESC
     """
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
@@ -463,4 +560,26 @@ if __name__ == "__main__":
 
     print("异常类型占比饼图 升级版：")
     print(df3_5)
+
+    df_cards = get_summary_card_stats(
+        start_date="2025-05-01",
+        end_date="2025-05-31",
+        team_id=None,
+        shift_id=None,
+        product_id=None,
+        batch_id=None
+    )
+    print("卡片统计汇总信息：")
+    print(df_cards)
+
+    df_kpi = get_kpi_by_inspector(
+        start_date="2025-05-26",
+        end_date="2025-05-26",
+        team_id=None,
+        shift_id=None,
+        product_id=None,
+        batch_id=None
+    )
+    print("人员kpi汇总信息：")
+    print(df_kpi)
 
