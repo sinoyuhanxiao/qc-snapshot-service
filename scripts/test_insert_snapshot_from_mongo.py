@@ -210,5 +210,18 @@ def process_template_group(form_template_id, doc_tuples):
         f"{len(inspector_ids)} inspectors, from {len(collection_names_seen)} collections."
     )
 
-if __name__ == "__main__":
+import schedule
+import time
+
+def job():
+    print("⏳ Scheduled snapshot job triggered... in every " + str(SNAPSHOT_TIME_WINDOW_MINUTES) + " minutes")
     main()
+
+# Schedule the job every Snap shot time minutes
+schedule.every(SNAPSHOT_TIME_WINDOW_MINUTES).minutes.do(job)
+
+if __name__ == "__main__":
+    job()  # Run immediately once
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
