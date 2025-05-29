@@ -328,9 +328,9 @@ def get_inspection_count_by_personnel_field_level(start_date: Optional[str], end
     where = []
 
     if start_date:
-        where.append("base.snapshot_time >= :start_date")
+        where.append("base.snapshot_time::date >= :start_date")
     if end_date:
-        where.append("base.snapshot_time <= :end_date")
+        where.append("base.snapshot_time::date <= :end_date")
 
     if team_id is not None:
         joins.append("JOIN quality_management.qc_snapshot_team st ON base.id = st.snapshot_id")
@@ -375,9 +375,18 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
                            product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     join_clause = """
         JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id
-        JOIN quality_management.qc_snapshot_inspector ins ON base.id = ins.snapshot_id
-        JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id
+        JOIN (
+            SELECT snapshot_id, SUM(total_count) AS total_items, SUM(abnormal_count) AS abnormal_items
+            FROM quality_management.qc_snapshot_item
+            GROUP BY snapshot_id
+        ) i ON base.id = i.snapshot_id
+        JOIN (
+            SELECT snapshot_id, COUNT(DISTINCT inspector_id) AS total_personnel
+            FROM quality_management.qc_snapshot_inspector
+            GROUP BY snapshot_id
+        ) ins ON base.id = ins.snapshot_id
     """
+
     where_clause = []
     if start_date:
         where_clause.append("base.snapshot_time::date >= :start_date")
@@ -400,16 +409,16 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
     sql = f"""
         SELECT 
             COUNT(DISTINCT sb.batch_id) AS total_batches,
-            COUNT(DISTINCT CASE WHEN i.abnormal_count > 0 THEN sb.batch_id END) AS abnormal_batches,
+            COUNT(DISTINCT CASE WHEN i.abnormal_items > 0 THEN sb.batch_id END) AS abnormal_batches,
             ROUND(
-                1.0 - COUNT(DISTINCT CASE WHEN i.abnormal_count > 0 THEN sb.batch_id END)::decimal /
+                1.0 - COUNT(DISTINCT CASE WHEN i.abnormal_items > 0 THEN sb.batch_id END)::decimal /
                 NULLIF(COUNT(DISTINCT sb.batch_id), 0), 4
             ) AS batch_pass_rate,
-            COUNT(DISTINCT ins.inspector_id) AS total_personnel,
-            SUM(i.total_count) AS total_items,
-            SUM(i.abnormal_count) AS abnormal_items,
+            MAX(ins.total_personnel) AS total_personnel,
+            SUM(i.total_items) AS total_items,
+            SUM(i.abnormal_items) AS abnormal_items,
             ROUND(
-                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
+                1.0 - SUM(i.abnormal_items)::decimal / NULLIF(SUM(i.total_items), 0), 4
             ) AS item_pass_rate
         FROM quality_management.qc_snapshot_base base
         {join_clause}
@@ -463,6 +472,48 @@ def get_kpi_by_inspector(start_date: Optional[str], end_date: Optional[str],
         GROUP BY ins.inspector_id, ins.inspector_name
         ORDER BY forms_submitted DESC
     """
+    with engine.connect() as conn:
+        return pd.read_sql(text(sql), conn, params=locals())
+
+def get_retest_records(start_date: Optional[str], end_date: Optional[str],
+                       team_id: Optional[int], shift_id: Optional[int],
+                       product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
+    where_clauses = []
+
+    if start_date:
+        where_clauses.append("created_at::date >= :start_date")
+    if end_date:
+        where_clauses.append("created_at::date <= :end_date")
+    if team_id is not None:
+        where_clauses.append(":team_id = ANY(related_team_ids)")
+    if shift_id is not None:
+        where_clauses.append(":shift_id = ANY(related_shift_ids)")
+    if product_id is not None:
+        where_clauses.append(":product_id = ANY(related_product_ids)")
+    if batch_id is not None:
+        where_clauses.append(":batch_id = ANY(related_batch_ids)")
+
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    sql = f"""
+        SELECT 
+            qc_form_template_id,
+            qc_form_template_name,
+            comments,
+            approver_id,
+            approver_name,
+            ARRAY_TO_STRING(related_products::text[], ',') AS related_products,
+            ARRAY_TO_STRING(related_batches::text[], ',') AS related_batches,
+            ARRAY_TO_STRING(related_teams::text[], ',') AS related_teams,
+            ARRAY_TO_STRING(related_inspectors::text[], ',') AS related_inspectors,
+            ARRAY_TO_STRING(related_shifts::text[], ',') AS related_shifts,
+            submission_id,
+            collection_name
+        FROM quality_management.qc_snapshot_retest
+        WHERE {where_sql}
+        ORDER BY created_at DESC
+    """
+
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
 
@@ -582,4 +633,15 @@ if __name__ == "__main__":
     )
     print("人员kpi汇总信息：")
     print(df_kpi)
+
+    df_retest = get_retest_records(
+        start_date="2025-05-01",
+        end_date="2025-05-31",
+        team_id=None,
+        shift_id=None,
+        product_id=None,
+        batch_id=None
+    )
+    print("复检记录列表：")
+    print(df_retest)
 

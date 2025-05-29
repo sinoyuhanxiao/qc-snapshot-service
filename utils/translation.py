@@ -26,5 +26,15 @@ COLUMN_TRANSLATIONS = {
     "inspector_name": "人员姓名",
     "forms_submitted": "提交表单数",
     "total_items_checked": "检测项目数",
-    "abnormal_rate": "异常率"
+    "abnormal_rate": "异常率",
+    "qc_form_template_name": "表单名称",
+    "comments": "复检备注",
+    "approver_name": "审批人",
+    "related_products": "相关产品",
+    "related_batches": "相关批次",
+    "related_teams": "相关班组",
+    "related_inspectors": "相关人员",
+    "related_shifts": "相关班次",
+    "submission_id": "相关提交编号",
+    "collection_name": "相关来源表单"
 }

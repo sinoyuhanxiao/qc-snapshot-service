@@ -1,8 +1,8 @@
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 import pandas as pd
 from datetime import datetime
 from services import summary_service
-from fpdf.enums import XPos, YPos
 
 from services.chat_summary_service import generate_chinese_summary
 from utils.translation import COLUMN_TRANSLATIONS
@@ -16,7 +16,7 @@ EXCLUDED_COLUMNS = {
     "df2": ["parent_id"],
     "df3": ["key"],
     "df5": [],
-    "df6": []
+    "df7": ["submission_id", "collection_name", "qc_form_template_id", "approver_id", "related_shifts", "related_inspectors", "related_batches"]
 }
 
 def apply_exclusions(df: pd.DataFrame, key: str) -> pd.DataFrame:
@@ -234,20 +234,36 @@ def export_summary_pdf(output_path=None,
     df5 = summary_service.get_kpi_by_inspector(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df5, "df5"))
 
-    # 7. 汇总部分
+    # 7. 需复检清单
+    pdf.add_section_title("需复检列表")
+    df7 = summary_service.get_retest_records(start_date, end_date, team_id, shift_id, product_id, batch_id)
+    df7 = apply_exclusions(df7, "df7")
+
+    col_count = len(df7.columns)
+    default_width = 190 / col_count
+    col_widths = []
+    for col in df7.columns:
+        if col in ["qc_form_template_name", "related_products"]:
+            col_widths.append(default_width + 20)  # 表单名称与产品列加宽
+        else:
+            col_widths.append(default_width - (40 / (col_count - 2)))  # 平均补偿其余列
+    pdf.add_table(df7, col_widths=col_widths)
+
+    # 8. 汇总部分
     filtered_data = {
         "总体情况": card_df,
         "批次合格率趋势": df1,
         "班组异常字段对比": df2,
         "异常类型分布": df3,
         "产品异常批次统计": df4,
-        "质检人员 KPI": df5
+        "质检人员 KPI": df5,
+        "需复检列表": df7
     }
 
     summary_text = generate_chinese_summary(filtered_data)
 
     if summary_text:
-        pdf.add_section_title("汇总总结")
+        pdf.add_section_title("AI智能汇总")
         pdf.set_font("SimHei", size=10)
 
         # 清洗掉 GPT 输出中的不兼容字符

@@ -32,6 +32,7 @@ from services.snapshot_service import (
 from utils.utils import get_recent_qc_collections
 from utils.time_utils import get_snapshot_time_window
 from collections import defaultdict
+from loguru import logger
 
 # PostgreSQL & MongoDB setup
 PG_CONN = psycopg2.connect(**DB_CONFIG)
@@ -48,6 +49,86 @@ def insert_snapshot_base(start_time, end_time, form_template_id, form_template_n
     """, (end_time, start_time, end_time, form_template_id, form_template_name))
     return PG_CURSOR.fetchone()[0]
 
+def insert_qc_snapshot_retest(row: dict):
+    keys = [
+        "qc_form_template_id", "qc_form_template_name",
+        "approver_id", "approver_name", "comments", "created_at",
+        "related_product_ids", "related_products",
+        "related_batch_ids", "related_batches",
+        "related_team_ids", "related_teams",
+        "related_inspector_ids", "related_inspectors",
+        "related_shift_ids", "related_shifts",
+        "submission_id", "collection_name"   # ✅ 新增字段
+    ]
+    values = [row.get(k) for k in keys]
+
+    PG_CURSOR.execute(f"""
+        INSERT INTO quality_management.qc_snapshot_retest (
+            {', '.join(keys)}
+        ) VALUES ({', '.join(['%s'] * len(keys))})
+    """, values)
+
+    logger.info(f"[RETEST] Inserted retest: submission_id={row.get('submission_id')}, collection={row.get('collection_name')}")
+
+def insert_snapshot_retest_from_mongo():
+    start_time, end_time = get_snapshot_time_window()
+    collections = get_recent_qc_collections(SNAPSHOT_TIME_WINDOW_MINUTES)
+
+    for collection_name in collections:
+        print(collection_name)
+        if not collection_name.startswith("form_template_"):
+            continue
+
+        try:
+            form_template_id = int(collection_name.split("_")[2])
+        except Exception:
+            continue
+
+        form_template_name = get_name_by_id(PG_CURSOR, "qc_form_template", "id", "name", form_template_id)
+        if not form_template_name:
+            continue
+
+        mongo_collection = mongo_db[collection_name]
+        cursor = mongo_collection.find({
+            "approver_updated_at": {"$gte": start_time, "$lte": end_time}
+        })
+
+        for doc in cursor:
+            approval_info = doc.get("approval_info", [])
+            for approval in approval_info:
+                if approval.get("suggest_retest") is True:
+                    row = {
+                        "qc_form_template_id": form_template_id,
+                        "qc_form_template_name": form_template_name,
+                        "approver_id": approval.get("user_id"),
+                        "approver_name": approval.get("user_name"),
+                        "comments": approval.get("comments"),
+                        "created_at": approval.get("timestamp"),
+                        "related_product_ids": doc.get("related_product_ids", []),
+                        "related_products": [p.strip() for p in
+                                             doc.get("related_products", "").split(",")] if doc.get(
+                            "related_products") else [],
+                        "related_batch_ids": doc.get("related_batch_ids", []),
+                        "related_batches": [b.strip() for b in
+                                            doc.get("related_batches", "").split(",")] if doc.get(
+                            "related_batches") else [],
+                        "related_team_ids": [doc.get("related_team_id")] if doc.get("related_team_id") else [],
+                        "related_teams": [doc.get("related_teams")] if doc.get("related_teams") else [],
+                        "related_inspector_ids": doc.get("related_inspector_ids", []),
+                        "related_inspectors": [i.strip() for i in
+                                               doc.get("related_inspectors", "").split(",")] if doc.get(
+                            "related_inspectors") else [],
+                        "related_shift_ids": [doc.get("related_shift_id")] if doc.get("related_shift_id") else [],
+                        "related_shifts": [doc.get("related_shifts")] if doc.get("related_shifts") else [],
+                        "submission_id": str(doc.get("_id")),
+                        "collection_name": collection_name
+                    }
+                    insert_qc_snapshot_retest(row)
+                    print(
+                        f"✅ Retest inserted for template {form_template_id}, approver {approval.get('user_name')}")
+                    break
+
+    PG_CONN.commit()
 
 def insert_snapshot_items(snapshot_id, start_time, end_time, form_template_id, mongo_collection):
     mapping_doc = mongo_db["form_template_key_label_pairs"].find_one({"qc_form_template_id": form_template_id})
@@ -151,6 +232,9 @@ def main():
         for form_template_id, docs in template_groups.items():
             process_template_group(form_template_id, docs)
 
+    # 增加复检记录插入
+    insert_snapshot_retest_from_mongo()
+
 def process_template_group(form_template_id, doc_tuples):
     from utils.time_utils import get_snapshot_time_window
     start_time, end_time = get_snapshot_time_window()
@@ -225,3 +309,8 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(1)
+
+# if __name__ == "__main__":
+#     print("🔍 Running standalone retest insert test...")
+#     insert_snapshot_retest_from_mongo()
+#     print("✅ Retest insert test completed.")

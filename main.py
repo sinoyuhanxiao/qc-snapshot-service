@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI, Query
 from typing import Optional
-from services import summary_service
+from services import summary_service, document_export_service
 from fastapi.middleware.cors import CORSMiddleware
 from utils.utils import clean_float_json
 
@@ -138,5 +138,41 @@ def personnel_kpi(
 ):
     df = summary_service.get_kpi_by_inspector(start_date, end_date, team_id, shift_id, product_id, batch_id)
     return clean_float_json(df)
+
+# 10. 复检记录列表
+@app.get("/summary/retest-records")
+def get_retest_records(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    team_id: Optional[int] = Query(None),
+    shift_id: Optional[int] = Query(None),
+    product_id: Optional[int] = Query(None),
+    batch_id: Optional[int] = Query(None)
+):
+    df = summary_service.get_retest_records(start_date, end_date, team_id, shift_id, product_id, batch_id)
+    return clean_float_json(df)
+
+# 11. 导出质检记录文档
+@app.get("/summary/document-list")
+def export_documents(
+    start_date: Optional[str] = Query(...),
+    end_date: Optional[str] = Query(...),
+    team_id: Optional[int] = Query(None),
+    shift_id: Optional[int] = Query(None),
+    product_id: Optional[int] = Query(None),
+    batch_id: Optional[int] = Query(None)
+):
+    docs = document_export_service.get_documents_list(
+        start_date=start_date,
+        end_date=end_date,
+        team_id=team_id,
+        shift_id=shift_id,
+        product_id=product_id,
+        batch_id=batch_id
+    )
+    return {
+        "data": docs
+    }
+
 
 
