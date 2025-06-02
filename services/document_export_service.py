@@ -4,49 +4,18 @@ import copy
 from db.mongo import get_mongo_db
 from db.postgres import pg_engine
 from sqlalchemy import text
-from datetime import datetime
 from utils.utils import get_recent_qc_collections
 import json
 from pathlib import Path
 from typing import Optional
 from utils.document_formatter import format_single_document
+from utils.json_safe import make_json_safe
+from datetime import datetime, timedelta
 
 def convert_datetime(obj):
     if isinstance(obj, datetime):
         return obj.isoformat()
     return obj
-
-def make_json_safe(obj):
-    """
-    Recursively sanitize object to be JSON serializable without circular refs.
-    Includes bson.ObjectId and datetime.
-    """
-    from bson import ObjectId
-    from datetime import datetime
-
-    def clean(o, visited=None):
-        if visited is None:
-            visited = set()
-
-        oid = id(o)
-        if oid in visited:
-            return "circular_ref"
-        visited.add(oid)
-
-        if isinstance(o, dict):
-            return {str(k): clean(v, visited) for k, v in o.items()}
-        elif isinstance(o, list):
-            return [clean(i, visited) for i in o]
-        elif isinstance(o, ObjectId):
-            return str(o)
-        elif isinstance(o, datetime):
-            return o.isoformat()
-        elif isinstance(o, (str, int, float, bool)) or o is None:
-            return o
-        else:
-            return str(o)
-
-    return clean(obj)
 
 def fetch_documents_by_time_range(start_date: str, end_date: str,
                                    team_id: Optional[int] = None,

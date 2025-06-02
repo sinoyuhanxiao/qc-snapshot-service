@@ -1,10 +1,12 @@
 # utils/document_formatter.py
 import copy
 import json
+import gc
 from pymongo import MongoClient
 from bson import ObjectId
 from sqlalchemy import text
 from db.postgres import pg_engine
+from utils.json_safe import make_json_safe
 
 
 def get_form_template_json(form_id: int):
@@ -41,6 +43,7 @@ def build_key_label_mapping(widget_list, key_map, option_item_map, field_divider
 
 def format_single_document(document, form_id):
     document = copy.deepcopy(document)
+    gc.collect()
     template = get_form_template_json(form_id)
     widget_list = template.get("widgetList", [])
 
@@ -66,7 +69,7 @@ def format_single_document(document, form_id):
         if key in reserved_keys:
             formatted_doc[formatted_key] = value
         else:
-            grouped_data.setdefault(divider, {})[formatted_key] = value
+            grouped_data.setdefault(divider, {})[formatted_key] = make_json_safe(value)
 
     # Convert exceeded_info
     if "exceeded_info" in document:
@@ -76,5 +79,5 @@ def format_single_document(document, form_id):
             formatted_exceeded[formatted_key] = val
         formatted_doc["exceeded_info"] = formatted_exceeded
 
-    formatted_doc.update(grouped_data)
+    formatted_doc.update(make_json_safe(grouped_data))
     return copy.deepcopy(formatted_doc)
