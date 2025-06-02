@@ -1,8 +1,12 @@
+from io import BytesIO
+
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 import pandas as pd
-from datetime import datetime
 from services import summary_service
+from zoneinfo import ZoneInfo
+from datetime import datetime
+from dateutil import parser
 
 from services.chat_summary_service import generate_chinese_summary
 from utils.translation import COLUMN_TRANSLATIONS
@@ -71,15 +75,30 @@ def export_summary_pdf(output_path=None,
                        team_id=None,
                        shift_id=None,
                        product_id=None,
-                       batch_id=None):
+                       batch_id=None,
+                       timezone=None):
 
     pdf = PDF()
     pdf.add_page()
 
+    localized_start = (
+        parser.isoparse(start_date)
+        .astimezone(ZoneInfo("UTC"))
+        .astimezone(ZoneInfo(timezone))
+        .strftime("%Y-%m-%d")
+    ) if start_date else "未指定"
+
+    localized_end = (
+        parser.isoparse(end_date)
+        .astimezone(ZoneInfo("UTC"))
+        .astimezone(ZoneInfo(timezone))
+        .strftime("%Y-%m-%d")
+    ) if end_date else "未指定"
+
     # filter display
     filter_lines = []
     if start_date or end_date:
-        filter_lines.append(f"时间范围：{start_date or '未指定'} 至 {end_date or '未指定'}")
+        filter_lines.append(f"时间范围：{localized_start or '未指定'} 至 {localized_end or '未指定'}")
 
     names = get_filter_names(team_id=team_id, shift_id=shift_id, product_id=product_id, batch_id=batch_id)
 
@@ -120,7 +139,7 @@ def export_summary_pdf(output_path=None,
         # 打印时间范围（单独一行）
         if start_date or end_date:
             pdf.set_font("SimHei", size=10)
-            time_range_text = f"时间范围：{start_date or '未指定'} 至 {end_date or '未指定'}"
+            time_range_text = f"时间范围：{localized_start or '未指定'} 至 {localized_end or '未指定'}"
             pdf.set_x((210 - pdf.get_string_width(time_range_text)) / 2)  # 居中
             pdf.cell(pdf.get_string_width(time_range_text), 8, time_range_text, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             # pdf.ln(2)
@@ -271,7 +290,11 @@ def export_summary_pdf(output_path=None,
         pdf.multi_cell(0, 8, safe_text)
 
     # 8. 保存 PDF
-    pdf.output(output_path)
+    # pdf.output(output_path)
+    buffer = BytesIO()
+    pdf.output(buffer)
+    buffer.seek(0)
+    return buffer
 
 def get_filter_names(team_id=None, shift_id=None, product_id=None, batch_id=None):
     name_map = {}

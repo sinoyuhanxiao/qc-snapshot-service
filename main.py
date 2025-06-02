@@ -1,17 +1,20 @@
 # main.py
+from datetime import datetime
 
 from fastapi import FastAPI, Query
 from typing import Optional
 from services import summary_service, document_export_service
 from fastapi.middleware.cors import CORSMiddleware
 from utils.utils import clean_float_json
+from fastapi.responses import StreamingResponse
+from services.reporting_service import export_summary_pdf
 
 app = FastAPI(title="QC Snapshot Summary API")
 
 # Allow CORS for your Vue frontend (adjust origin in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with ["http://localhost:5173"] for Vue dev server
+    allow_origins=["*"],  # Can be replaced with ["http://localhost:3000"] for Vue dev server
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -174,5 +177,33 @@ def export_documents(
         "data": docs
     }
 
+@app.get("/summary/export-pdf-report")
+def export_pdf_report(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    team_id: Optional[int] = Query(None),
+    shift_id: Optional[int] = Query(None),
+    product_id: Optional[int] = Query(None),
+    batch_id: Optional[int] = Query(None),
+    timezone: Optional[str] = Query("UTC")  # default to UTC if not provided
+):
+    pdf_buffer = export_summary_pdf(
+        output_path=None,
+        start_date=start_date,
+        end_date=end_date,
+        team_id=team_id,
+        shift_id=shift_id,
+        product_id=product_id,
+        batch_id=batch_id,
+        timezone=timezone
+    )
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return StreamingResponse(
+        content=pdf_buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=report_{timestamp}.pdf; filename*=UTF-8''%E8%B4%A8%E9%87%8F%E6%B1%87%E6%80%BB%E6%8A%A5%E5%91%8A_{timestamp}.pdf"
+        }
+    )
 
