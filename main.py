@@ -1,8 +1,12 @@
 # main.py
+import base64
+import tempfile
 from datetime import datetime
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Body
 from typing import Optional
+
+from requests.ExportPdfRequest import ExportPdfRequest
 from services import summary_service, document_export_service
 from fastapi.middleware.cors import CORSMiddleware
 from utils.utils import clean_float_json
@@ -177,25 +181,30 @@ def export_documents(
         "data": docs
     }
 
-@app.get("/summary/export-pdf-report")
-def export_pdf_report(
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    team_id: Optional[int] = Query(None),
-    shift_id: Optional[int] = Query(None),
-    product_id: Optional[int] = Query(None),
-    batch_id: Optional[int] = Query(None),
-    timezone: Optional[str] = Query("UTC")  # default to UTC if not provided
-):
+@app.post("/summary/export-pdf-report")
+def export_pdf_report_with_charts(payload: ExportPdfRequest):
+    chart_paths = {}
+
+    for key, base64_data in payload.charts.items():
+        if not base64_data.startswith("data:image"):
+            continue
+        header, base64_img = base64_data.split(",", 1)
+        extension = header.split("/")[1].split(";")[0]
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}")
+        temp_file.write(base64.b64decode(base64_img))
+        temp_file.close()
+        chart_paths[key] = temp_file.name
+
     pdf_buffer = export_summary_pdf(
         output_path=None,
-        start_date=start_date,
-        end_date=end_date,
-        team_id=team_id,
-        shift_id=shift_id,
-        product_id=product_id,
-        batch_id=batch_id,
-        timezone=timezone
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        team_id=payload.team_id,
+        shift_id=payload.shift_id,
+        product_id=payload.product_id,
+        batch_id=payload.batch_id,
+        timezone=payload.timezone,
+        chart_paths=chart_paths
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -203,7 +212,7 @@ def export_pdf_report(
         content=pdf_buffer,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename=report_{timestamp}.pdf; filename*=UTF-8''%E8%B4%A8%E9%87%8F%E6%B1%87%E6%80%BB%E6%8A%A5%E5%91%8A_{timestamp}.pdf"
+            "Content-Disposition": f"attachment; filename=report_{timestamp}.pdf"
         }
     )
 

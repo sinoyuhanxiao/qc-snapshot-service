@@ -1,4 +1,5 @@
 from io import BytesIO
+from typing import Optional
 
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
@@ -8,7 +9,7 @@ from zoneinfo import ZoneInfo
 from datetime import datetime
 from dateutil import parser
 
-from services.chat_summary_service import generate_chinese_summary
+from services.chat_summary_service import generate_section_summary, generate_overall_summary, SECTION_PROMPTS
 from utils.translation import COLUMN_TRANSLATIONS
 from sqlalchemy import text
 from db.postgres import pg_engine as engine
@@ -20,7 +21,7 @@ EXCLUDED_COLUMNS = {
     "df2": ["parent_id"],
     "df3": ["key"],
     "df5": [],
-    "df7": ["submission_id", "collection_name", "qc_form_template_id", "approver_id", "related_shifts", "related_inspectors", "related_batches"]
+    "df7": ["submission_id", "collection_name", "comments", "qc_form_template_id", "approver_id", "related_shifts", "related_inspectors", "related_batches"]
 }
 
 def apply_exclusions(df: pd.DataFrame, key: str) -> pd.DataFrame:
@@ -76,7 +77,8 @@ def export_summary_pdf(output_path=None,
                        shift_id=None,
                        product_id=None,
                        batch_id=None,
-                       timezone=None):
+                       timezone=None,
+                       chart_paths: Optional[dict] = None):
 
     pdf = PDF()
     pdf.add_page()
@@ -220,21 +222,45 @@ def export_summary_pdf(output_path=None,
 
     # 1. 批次合格率趋势
     pdf.add_section_title("批次合格率趋势")
+    if chart_paths and chart_paths.get("pass_rate"):
+        pdf.image(chart_paths["pass_rate"], x=pdf.get_x(), w=190)
+    pdf.ln(5)
     df1 = summary_service.get_pass_rate_by_day(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df1, "df1"))
+    summary_1 = generate_section_summary(df1, SECTION_PROMPTS["批次合格率趋势"])
+    pdf.set_font("SimHei", size=10)
+    pdf.multi_cell(0, 8, f"AI分析：\n{summary_1}")
+    pdf.add_page()
 
     # 2. 班组异常字段对比
     pdf.add_section_title("班组异常对比")
+    if chart_paths and chart_paths.get("abnormal_by_team"):
+        pdf.image(chart_paths["abnormal_by_team"], x=pdf.get_x(), w=190)
+    pdf.ln(5)
     df2 = summary_service.get_abnormal_by_team(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df2, "df2"))
+    summary_2 = generate_section_summary(df2, SECTION_PROMPTS["班组异常对比"])
+    pdf.set_font("SimHei", size=10)
+    pdf.multi_cell(0, 8, f"AI分析：\n{summary_2}")
+    pdf.add_page()
 
     # 3. 异常类型分布
     pdf.add_section_title("异常类型分布")
+    if chart_paths and chart_paths.get("abnormal_ratio"):
+        pdf.image(chart_paths["abnormal_ratio"], x=pdf.get_x(), w=190)
+    pdf.ln(5)
     df3 = summary_service.get_abnormal_ratio_by_field(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df3, "df3"))
+    summary_3 = generate_section_summary(df3, SECTION_PROMPTS["异常类型分布"])
+    pdf.set_font("SimHei", size=10)
+    pdf.multi_cell(0, 8, f"AI分析：\n{summary_3}")
+    pdf.add_page()
 
     # 4. 产品异常批次统计
     pdf.add_section_title("产品异常批次统计")
+    if chart_paths and chart_paths.get("abnormal_batches_by_product"):
+        pdf.image(chart_paths["abnormal_batches_by_product"], x=pdf.get_x(), w=190)
+    pdf.ln(5)
     df4 = summary_service.get_abnormal_batches_by_product(start_date, end_date, team_id, shift_id, product_id, batch_id)
     df4 = apply_exclusions(df4, "df4")
     col_count = len(df4.columns)
@@ -247,17 +273,27 @@ def export_summary_pdf(output_path=None,
         else:
             col_widths.append(default_width - (20 / (col_count - 1)))  # 平均补偿其余列
     pdf.add_table(df4, col_widths=col_widths)
+    summary_4 = generate_section_summary(df4, SECTION_PROMPTS["产品异常批次统计"])
+    pdf.set_font("SimHei", size=10)
+    pdf.multi_cell(0, 8, f"AI分析：\n{summary_4}")
+    pdf.add_page()
 
     # 6. 人员检测 KPI
     pdf.add_section_title("质检人员 KPI")
+    if chart_paths and chart_paths.get("kpi_by_inspector"):
+        pdf.image(chart_paths["kpi_by_inspector"], x=pdf.get_x(), w=190)
+    pdf.ln(5)
     df5 = summary_service.get_kpi_by_inspector(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df5, "df5"))
+    summary_5 = generate_section_summary(df5, SECTION_PROMPTS["质检人员 KPI"])
+    pdf.set_font("SimHei", size=10)
+    pdf.multi_cell(0, 8, f"AI分析：\n{summary_5}")
+    pdf.add_page()
 
     # 7. 需复检清单
     pdf.add_section_title("需复检列表")
     df7 = summary_service.get_retest_records(start_date, end_date, team_id, shift_id, product_id, batch_id)
     df7 = apply_exclusions(df7, "df7")
-
     col_count = len(df7.columns)
     default_width = 190 / col_count
     col_widths = []
@@ -267,6 +303,10 @@ def export_summary_pdf(output_path=None,
         else:
             col_widths.append(default_width - (40 / (col_count - 2)))  # 平均补偿其余列
     pdf.add_table(df7, col_widths=col_widths)
+    summary_7 = generate_section_summary(df7, SECTION_PROMPTS["需复检列表"])
+    pdf.set_font("SimHei", size=10)
+    pdf.multi_cell(0, 8, f"AI分析：\n{summary_7}")
+    pdf.add_page()
 
     # 8. 汇总部分
     filtered_data = {
@@ -275,14 +315,14 @@ def export_summary_pdf(output_path=None,
         "班组异常字段对比": df2,
         "异常类型分布": df3,
         "产品异常批次统计": df4,
-        "质检人员 KPI": df5,
+        "质检人员 KPI": df5, # leave df6 empty for now 产品 x 日期热力图
         "需复检列表": df7
     }
 
-    summary_text = generate_chinese_summary(filtered_data)
+    summary_text = generate_overall_summary(filtered_data)
 
     if summary_text:
-        pdf.add_section_title("AI智能汇总")
+        pdf.add_section_title("AI整体总结")
         pdf.set_font("SimHei", size=10)
 
         # 清洗掉 GPT 输出中的不兼容字符

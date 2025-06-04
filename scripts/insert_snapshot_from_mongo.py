@@ -1,5 +1,5 @@
 """
-test_insert_snapshot_from_mongo.py
+insert_snapshot_from_mongo.py
 
 This script loops through all valid MongoDB form collections (e.g., form_template_368_202505),
 extracts related QC metadata from each document, and inserts corresponding snapshot records
@@ -39,6 +39,28 @@ PG_CONN = psycopg2.connect(**DB_CONFIG)
 PG_CURSOR = PG_CONN.cursor()
 mongo_db = get_mongo_db()
 
+# Global start time and end time
+start_time = None
+end_time = None
+inserted_retest_count = 0
+inserted_snapshot_count = 0
+
+def initialize_snapshot_time_range():
+    global start_time, end_time
+    PG_CURSOR.execute("SELECT MAX(end_at) FROM quality_management.qc_snapshot_trigger_log")
+    last_triggered_at = PG_CURSOR.fetchone()[0]
+
+    # 强制转换为 naive（移除 tzinfo）
+    if last_triggered_at and last_triggered_at.tzinfo:
+        last_triggered_at = last_triggered_at.replace(tzinfo=None)
+
+    # fallback 如果是 None
+    if not last_triggered_at:
+        last_triggered_at = datetime.utcnow() - timedelta(minutes=SNAPSHOT_TIME_WINDOW_MINUTES)
+
+    start_time = last_triggered_at
+    end_time = datetime.utcnow()
+    print(f"🕒 Snapshot time window set from {start_time} to {end_time}")
 
 def insert_snapshot_base(start_time, end_time, form_template_id, form_template_name):
     PG_CURSOR.execute("""
@@ -71,7 +93,8 @@ def insert_qc_snapshot_retest(row: dict):
     logger.info(f"[RETEST] Inserted retest: submission_id={row.get('submission_id')}, collection={row.get('collection_name')}")
 
 def insert_snapshot_retest_from_mongo():
-    start_time, end_time = get_snapshot_time_window()
+    global inserted_retest_count
+    global start_time, end_time
     collections = get_recent_qc_collections(SNAPSHOT_TIME_WINDOW_MINUTES)
 
     for collection_name in collections:
@@ -124,20 +147,21 @@ def insert_snapshot_retest_from_mongo():
                         "collection_name": collection_name
                     }
                     insert_qc_snapshot_retest(row)
+                    inserted_retest_count += 1
                     print(
                         f"✅ Retest inserted for template {form_template_id}, approver {approval.get('user_name')}")
                     break
 
     PG_CONN.commit()
 
-def insert_snapshot_items(snapshot_id, start_time, end_time, form_template_id, mongo_collection):
+def insert_snapshot_items(snapshot_id, form_template_id, mongo_collection):
     mapping_doc = mongo_db["form_template_key_label_pairs"].find_one({"qc_form_template_id": form_template_id})
     if not mapping_doc:
         print(f"❌ No snapshot items that is alerted found for template {form_template_id}")
         return
 
     fields = mapping_doc.get("fields", [])
-    print(f"🕒 Snapshot time window: {start_time} → {end_time}")
+    global start_time, end_time
 
     for field in fields:
         key = field["key"]
@@ -186,7 +210,7 @@ def process_document(doc, collection_name):
         print(f"❌ Cannot find form_template_name for ID {form_template_id}")
         return
 
-    start_time, end_time = get_snapshot_time_window()
+    global start_time, end_time
     snapshot_id = insert_snapshot_base(start_time, end_time, form_template_id, form_template_name)
     print(f"✅ Inserted snapshot_base for template {form_template_id} with id {snapshot_id}")
 
@@ -205,13 +229,16 @@ def process_document(doc, collection_name):
     insert_inspector_snapshot(PG_CURSOR, snapshot_id, inspector_ids)
 
     start_time, end_time = get_snapshot_time_window()
-    insert_snapshot_items(snapshot_id, start_time, end_time, form_template_id, mongo_db[collection_name])
+    insert_snapshot_items(snapshot_id, form_template_id, mongo_db[collection_name])
 
     PG_CONN.commit()
     print("🎉 Snapshot inserted for one document.\n")
 
 
 def main():
+    global start_time, end_time
+    global inserted_retest_count
+    inserted_retest_count = 0
     collections = get_recent_qc_collections(SNAPSHOT_TIME_WINDOW_MINUTES)
 
     for collection_name in collections:
@@ -219,7 +246,8 @@ def main():
         mongo_collection = mongo_db[collection_name]
         cursor = mongo_collection.find({
             "created_at": {
-                "$gte": datetime.utcnow() - timedelta(minutes=SNAPSHOT_TIME_WINDOW_MINUTES)
+                "$gte": start_time,
+                "$lte": end_time
             }
         })
 
@@ -235,10 +263,23 @@ def main():
     # 增加复检记录插入
     insert_snapshot_retest_from_mongo()
 
+    # Insert snapshot trigger log
+    PG_CURSOR.execute("""
+        INSERT INTO quality_management.qc_snapshot_trigger_log (start_at, end_at, note)
+        VALUES (%s, %s, %s)
+    """, (
+        start_time,
+        end_time,
+        f"Inserted {inserted_snapshot_count} snapshots, {inserted_retest_count} retests"
+    ))
+
+    PG_CONN.commit()
+
 def process_template_group(form_template_id, doc_tuples):
     from utils.time_utils import get_snapshot_time_window
-    start_time, end_time = get_snapshot_time_window()
-
+    global start_time, end_time
+    global inserted_snapshot_count
+    inserted_snapshot_count += 1
     # Fetch form name
     form_template_name = get_name_by_id(PG_CURSOR, "qc_form_template", "id", "name", form_template_id)
     if not form_template_name:
@@ -283,7 +324,7 @@ def process_template_group(form_template_id, doc_tuples):
         collection_names_seen.add(collection_name)
 
         mongo_collection = mongo_db[collection_name]
-        insert_snapshot_items(snapshot_id, start_time, end_time, form_template_id, mongo_collection)
+        insert_snapshot_items(snapshot_id, form_template_id, mongo_collection)
 
     PG_CONN.commit()
 
@@ -298,7 +339,10 @@ import schedule
 import time
 
 def job():
-    print("⏳ Scheduled snapshot job triggered... in every " + str(SNAPSHOT_TIME_WINDOW_MINUTES) + " minutes")
+    print(f"⏳ Scheduled snapshot job triggered at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} — setting is every {SNAPSHOT_TIME_WINDOW_MINUTES} minutes")
+    initialize_snapshot_time_range()
+    actual_minutes = round((end_time - start_time).total_seconds() / 60, 2)
+    print(f"🧮 Actual snapshot range = {actual_minutes} minutes ({start_time} ~ {end_time})")
     main()
 
 # Schedule the job every Snap shot time minutes
