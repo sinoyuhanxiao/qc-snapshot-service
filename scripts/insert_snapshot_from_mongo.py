@@ -47,19 +47,26 @@ inserted_snapshot_count = 0
 
 def initialize_snapshot_time_range():
     global start_time, end_time
-    PG_CURSOR.execute("SELECT MAX(end_at) FROM quality_management.qc_snapshot_trigger_log")
+    PG_CURSOR.execute("""
+        SELECT end_at 
+        FROM quality_management.qc_snapshot_trigger_log 
+        ORDER BY id DESC 
+        LIMIT 1
+    """)
     last_triggered_at = PG_CURSOR.fetchone()[0]
 
-    # 强制转换为 naive（移除 tzinfo）
     if last_triggered_at and last_triggered_at.tzinfo:
-        last_triggered_at = last_triggered_at.replace(tzinfo=None)
+        last_triggered_at = last_triggered_at.astimezone(timezone.utc)
 
-    # fallback 如果是 None
     if not last_triggered_at:
-        last_triggered_at = datetime.utcnow() - timedelta(minutes=SNAPSHOT_TIME_WINDOW_MINUTES)
+        last_triggered_at = datetime.now(timezone.utc) - timedelta(minutes=SNAPSHOT_TIME_WINDOW_MINUTES)
+
+    if last_triggered_at.tzinfo is None:
+        last_triggered_at = last_triggered_at.replace(tzinfo=timezone.utc)
 
     start_time = last_triggered_at
-    end_time = datetime.utcnow()
+    end_time = datetime.now(timezone.utc)
+
     print(f"🕒 Snapshot time window set from {start_time} to {end_time}")
 
 def insert_snapshot_base(start_time, end_time, form_template_id, form_template_name):
@@ -172,6 +179,9 @@ def insert_snapshot_items(snapshot_id, form_template_id, mongo_collection):
             "created_at": {"$gte": start_time, "$lte": end_time}
         })
 
+        # Debug print
+        print(f"🧪 Checking abnormal count for form_template_id={form_template_id}, key={key}, range=({start_time}, {end_time})")
+
         PG_CURSOR.execute("""
             SELECT COUNT(*) FROM quality_management.qc_alert_record
             WHERE qc_form_template_id = %s
@@ -180,7 +190,7 @@ def insert_snapshot_items(snapshot_id, form_template_id, mongo_collection):
         """, (form_template_id, key, start_time, end_time))
         abnormal_count = PG_CURSOR.fetchone()[0]
 
-        PG_CURSOR.execute("""
+        PG_CURSOR.execute(""" 
             INSERT INTO quality_management.qc_snapshot_item (
                 snapshot_id, key, label, total_count, abnormal_count
             ) VALUES (%s, %s, %s, %s, %s)
@@ -335,6 +345,54 @@ def process_template_group(form_template_id, doc_tuples):
         f"{len(inspector_ids)} inspectors, from {len(collection_names_seen)} collections."
     )
 
+def run_manual_snapshot():
+    global start_time, end_time, inserted_snapshot_count, inserted_retest_count
+    inserted_snapshot_count = 0
+    inserted_retest_count = 0
+
+    initialize_snapshot_time_range()
+    snapshot_start = start_time
+    snapshot_end = end_time
+
+    collections = get_recent_qc_collections(SNAPSHOT_TIME_WINDOW_MINUTES)
+
+    for collection_name in collections:
+        print(f"\n📂 Processing collection: {collection_name}")
+        mongo_collection = mongo_db[collection_name]
+        cursor = mongo_collection.find({
+            "created_at": {
+                "$gte": start_time,
+                "$lte": end_time
+            }
+        })
+
+        template_groups = defaultdict(list)
+        for doc in cursor:
+            try:
+                form_template_id = int(collection_name.split("_")[2])
+            except Exception:
+                continue
+            template_groups[form_template_id].append((doc, collection_name))
+
+        for form_template_id, docs in template_groups.items():
+            process_template_group(form_template_id, docs)
+
+    # Insert retest records
+    insert_snapshot_retest_from_mongo()
+
+    # Log snapshot trigger with is_manual = 1
+    PG_CURSOR.execute("""
+        INSERT INTO quality_management.qc_snapshot_trigger_log (start_at, end_at, note, is_manual)
+        VALUES (%s, %s, %s, %s)
+    """, (
+        snapshot_start,
+        snapshot_end,
+        f"Inserted {inserted_snapshot_count} snapshots, {inserted_retest_count} retests",
+        1
+    ))
+    PG_CONN.commit()
+    print("✅ Manual snapshot run completed.")
+
 import schedule
 import time
 
@@ -347,6 +405,7 @@ def job():
 
 # Schedule the job every Snap shot time minutes
 schedule.every(SNAPSHOT_TIME_WINDOW_MINUTES).minutes.do(job)
+
 
 if __name__ == "__main__":
     job()  # Run immediately once

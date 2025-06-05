@@ -291,7 +291,7 @@ def export_summary_pdf(output_path=None,
     pdf.add_page()
 
     # 7. 需复检清单
-    pdf.add_section_title("需复检列表")
+    pdf.add_section_title("需复检列表") 
     df7 = summary_service.get_retest_records(start_date, end_date, team_id, shift_id, product_id, batch_id)
     df7 = apply_exclusions(df7, "df7")
     col_count = len(df7.columns)

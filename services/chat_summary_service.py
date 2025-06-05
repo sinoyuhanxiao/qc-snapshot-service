@@ -36,7 +36,7 @@ def generate_section_summary(df: pd.DataFrame, prompt: str) -> Optional[str]:
     preview = df.head(5).to_string(index=False)
 
     full_prompt = f"""
-        你是一个质量分析总结助手。请根据以下部分数据生成中文汇总段落：
+        你是一个质量分析总结助手。请根据以下部分数据生成中文汇总段落, 注意格式上不要出现大空格和括号：
         {prompt}
         
         以下是数据预览：
@@ -95,4 +95,6 @@ def generate_overall_summary(filtered_data: dict) -> str:
         messages=[{"role": "user", "content": prompt}]
     )
 
-    return response.choices[0].message.content.strip()
+    raw_text = response.choices[0].message.content.strip()
+    cleaned_text = "\n".join([line.strip() for line in raw_text.splitlines() if line.strip()])
+    return cleaned_text

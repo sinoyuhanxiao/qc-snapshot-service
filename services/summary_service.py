@@ -204,8 +204,8 @@ def get_abnormal_ratio_by_field_grouped_other(start_date: Optional[str], end_dat
     total = df['abnormal_count'].sum()
     df['percentage'] = df['abnormal_count'] / total
 
-    above_20 = df[df['percentage'] >= 0.1][['key', 'label', 'abnormal_count']]
-    below_20 = df[df['percentage'] < 0.1]
+    above_20 = df[df['percentage'] >= 0.05][['key', 'label', 'abnormal_count']]
+    below_20 = df[df['percentage'] < 0.05]
 
     if not below_20.empty:
         other_sum = below_20['abnormal_count'].sum()
@@ -374,12 +374,18 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
                            team_id: Optional[int], shift_id: Optional[int],
                            product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     join_clause = """
-        JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id
+        JOIN (
+            SELECT snapshot_id, COUNT(DISTINCT batch_id) AS batch_count
+            FROM quality_management.qc_snapshot_batch
+            GROUP BY snapshot_id
+        ) sb ON base.id = sb.snapshot_id
+
         JOIN (
             SELECT snapshot_id, SUM(total_count) AS total_items, SUM(abnormal_count) AS abnormal_items
             FROM quality_management.qc_snapshot_item
             GROUP BY snapshot_id
         ) i ON base.id = i.snapshot_id
+
         JOIN (
             SELECT snapshot_id, COUNT(DISTINCT inspector_id) AS total_personnel
             FROM quality_management.qc_snapshot_inspector
@@ -402,17 +408,23 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
         join_clause += "\nJOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id"
         where_clause.append("sp.product_id = :product_id")
     if batch_id is not None:
-        where_clause.append("sb.batch_id = :batch_id")
+        # this column no longer exists in sb — batch_id isn't passed in the subquery
+        # to filter by batch_id, need to join the full table again
+        join_clause += "\nJOIN quality_management.qc_snapshot_batch sb_filter ON base.id = sb_filter.snapshot_id"
+        where_clause.append("sb_filter.batch_id = :batch_id")
 
     where_sql = " AND ".join(where_clause) if where_clause else "1=1"
 
     sql = f"""
         SELECT 
-            COUNT(DISTINCT sb.batch_id) AS total_batches,
-            COUNT(DISTINCT CASE WHEN i.abnormal_items > 0 THEN sb.batch_id END) AS abnormal_batches,
+            SUM(sb.batch_count) AS total_batches,
+            SUM(
+                CASE WHEN i.abnormal_items > 0 THEN sb.batch_count ELSE 0 END
+            ) AS abnormal_batches,
             ROUND(
-                1.0 - COUNT(DISTINCT CASE WHEN i.abnormal_items > 0 THEN sb.batch_id END)::decimal /
-                NULLIF(COUNT(DISTINCT sb.batch_id), 0), 4
+                1.0 - SUM(
+                    CASE WHEN i.abnormal_items > 0 THEN sb.batch_count ELSE 0 END
+                )::decimal / NULLIF(SUM(sb.batch_count), 0), 4
             ) AS batch_pass_rate,
             MAX(ins.total_personnel) AS total_personnel,
             SUM(i.total_items) AS total_items,

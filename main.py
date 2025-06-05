@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from utils.utils import clean_float_json
 from fastapi.responses import StreamingResponse
 from services.reporting_service import export_summary_pdf
+from scripts import insert_snapshot_from_mongo
 
 app = FastAPI(title="QC Snapshot Summary API")
 
@@ -216,3 +217,7 @@ def export_pdf_report_with_charts(payload: ExportPdfRequest):
         }
     )
 
+@app.post("/snapshot/manual-trigger")
+def manual_snapshot_trigger():
+    insert_snapshot_from_mongo.run_manual_snapshot()
+    return {"message": "Manual snapshot trigger completed"}
