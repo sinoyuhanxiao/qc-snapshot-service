@@ -33,6 +33,7 @@ from utils.utils import get_recent_qc_collections
 from utils.time_utils import get_snapshot_time_window
 from collections import defaultdict
 from loguru import logger
+logger.add("logs/snapshot_worker.log", rotation="1 day", retention="7 days")
 
 # PostgreSQL & MongoDB setup
 PG_CONN = psycopg2.connect(**DB_CONFIG)

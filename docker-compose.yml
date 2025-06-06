@@ -1,11 +1,11 @@
 version: '3.8'
 
 services:
-  qc-snapshot-service:
+  qc-snapshot-api:
     build: .
-    container_name: qc-snapshot-service
+    container_name: mes-qc-summary-service
     ports:
-      - "8000:8000"
+      - "8010:8000"
     env_file:
       - .env
     environment:
@@ -14,3 +14,19 @@ services:
       - ./logs:/app/logs
       - ./backups:/app/backups
     restart: unless-stopped
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  qc-snapshot-worker:
+    build: .
+    container_name: mes-qc-snapshot-worker
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - TZ=UTC
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+    command: [ "python", "-u", "scripts/insert_snapshot_from_mongo.py" ] # shows print with -u
+

@@ -13,6 +13,8 @@ from utils.utils import clean_float_json
 from fastapi.responses import StreamingResponse
 from services.reporting_service import export_summary_pdf
 from scripts import insert_snapshot_from_mongo
+from loguru import logger
+logger.add("logs/api.log", rotation="1 day", retention="7 days")
 
 app = FastAPI(title="QC Snapshot Summary API")
 
