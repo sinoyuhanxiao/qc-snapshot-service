@@ -1,16 +1,21 @@
-# Dockerfile
-
+# Use lightweight Python image
 FROM python:3.11-slim
 
-# Set work directory
+# Set working directory in container
 WORKDIR /app
 
-# Install dependencies
+# Install system-level dependencies (optional, but useful for image/PDF generation, etc.)
+RUN apt-get update && apt-get install -y gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all code
+# Copy all source code
 COPY . .
 
-# Run FastAPI with Uvicorn
+# Expose port (optional, for documentation)
+EXPOSE 8000
+
+# Run FastAPI app with Uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
