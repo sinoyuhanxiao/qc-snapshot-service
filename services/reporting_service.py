@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from datetime import datetime
 from dateutil import parser
 
-from services.chat_summary_service import generate_section_summary, generate_overall_summary, SECTION_PROMPTS
+from services.chatgpt_summary_service import generate_section_summary, generate_overall_summary, SECTION_PROMPTS
 from utils.translation import COLUMN_TRANSLATIONS
 from sqlalchemy import text
 from db.postgres import pg_engine as engine
@@ -291,7 +291,7 @@ def export_summary_pdf(output_path=None,
     pdf.add_page()
 
     # 7. 需复检清单
-    pdf.add_section_title("需复检列表") 
+    pdf.add_section_title("需复检列表")
     df7 = summary_service.get_retest_records(start_date, end_date, team_id, shift_id, product_id, batch_id)
     df7 = apply_exclusions(df7, "df7")
     col_count = len(df7.columns)
