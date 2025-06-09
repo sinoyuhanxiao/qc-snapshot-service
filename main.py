@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import FastAPI, Query, Body
 from typing import Optional
 
-from requests.ExportPdfRequest import ExportPdfRequest
+from my_requests.ExportPdfRequest import ExportPdfRequest
 from services import summary_service, document_export_service
 from fastapi.middleware.cors import CORSMiddleware
 from utils.utils import clean_float_json

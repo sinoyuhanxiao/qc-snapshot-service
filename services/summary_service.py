@@ -88,23 +88,61 @@ def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
     where_clause = " AND ".join(where) if where else "1=1"
 
     sql = f"""
+        WITH raw_team_data AS (
+            SELECT
+                st.team_id,
+                st.team_name,
+                t.parent_id,
+                SUM(i.abnormal_count) AS abnormal_fields,
+                SUM(i.total_count) - SUM(i.abnormal_count) AS normal_fields,
+                SUM(i.total_count) AS total_fields
+            FROM quality_management.qc_snapshot_team st
+            JOIN quality_management.team t ON st.team_id = t.id
+            JOIN quality_management.qc_snapshot_item i ON st.snapshot_id = i.snapshot_id
+            JOIN quality_management.qc_snapshot_base b ON st.snapshot_id = b.id
+            {f"JOIN quality_management.qc_snapshot_shift ss ON st.snapshot_id = ss.snapshot_id" if shift_id is not None else ""}
+            {f"JOIN quality_management.qc_snapshot_product sp ON st.snapshot_id = sp.snapshot_id" if product_id is not None else ""}
+            {f"JOIN quality_management.qc_snapshot_batch sb ON st.snapshot_id = sb.snapshot_id" if batch_id is not None else ""}
+            WHERE {where_clause}
+            GROUP BY st.team_id, st.team_name, t.parent_id
+        ),
+        -- Now collect each parent with all its children (and itself)
+        combined AS (
+            SELECT
+            COALESCE(parent.team_id, child.team_id) AS parent_id,
+            COALESCE(parent.team_name, child.team_name) AS parent_name,
+                child.team_id AS child_id,
+                child.team_name AS child_name,
+                child.abnormal_fields,
+                child.normal_fields,
+                child.total_fields
+            FROM raw_team_data child
+            LEFT JOIN raw_team_data parent
+                ON child.parent_id = parent.team_id
+            UNION
+            -- add self rows for standalone teams (so they're not missed)
+            SELECT
+                team_id AS parent_id,
+                team_name AS parent_name,
+                team_id AS child_id,
+                team_name AS child_name,
+                abnormal_fields,
+                normal_fields,
+                total_fields
+            FROM raw_team_data
+        )
         SELECT
-            st.team_id,
-            st.team_name,
-            t.parent_id,
-            SUM(i.abnormal_count) AS abnormal_fields,
-            SUM(i.total_count) - SUM(i.abnormal_count) AS normal_fields,
-            SUM(i.total_count) AS total_fields,
+            parent_id AS team_id,
+            parent_name AS team_name,
+            SUM(abnormal_fields) AS abnormal_fields,
+            SUM(normal_fields) AS normal_fields,
+            SUM(total_fields) AS total_fields,
             ROUND(
-                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
+                1.0 - SUM(abnormal_fields)::decimal / NULLIF(SUM(total_fields), 0), 4
             ) AS pass_rate
-        FROM quality_management.qc_snapshot_team st
-        {join_clause}
-        WHERE {where_clause}
-        GROUP BY st.team_id, st.team_name, t.parent_id
-        ORDER BY ROUND(
-                1.0 - SUM(i.abnormal_count)::decimal / NULLIF(SUM(i.total_count), 0), 4
-            ) DESC
+        FROM combined
+        GROUP BY parent_id, parent_name
+        ORDER BY pass_rate DESC
     """
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
@@ -386,11 +424,7 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
             GROUP BY snapshot_id
         ) i ON base.id = i.snapshot_id
 
-        JOIN (
-            SELECT snapshot_id, COUNT(DISTINCT inspector_id) AS total_personnel
-            FROM quality_management.qc_snapshot_inspector
-            GROUP BY snapshot_id
-        ) ins ON base.id = ins.snapshot_id
+        JOIN quality_management.qc_snapshot_inspector ins ON base.id = ins.snapshot_id
     """
 
     where_clause = []
@@ -426,7 +460,7 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
                     CASE WHEN i.abnormal_items > 0 THEN sb.batch_count ELSE 0 END
                 )::decimal / NULLIF(SUM(sb.batch_count), 0), 4
             ) AS batch_pass_rate,
-            MAX(ins.total_personnel) AS total_personnel,
+            COUNT(DISTINCT ins.inspector_id) AS total_personnel,
             SUM(i.total_items) AS total_items,
             SUM(i.abnormal_items) AS abnormal_items,
             ROUND(
