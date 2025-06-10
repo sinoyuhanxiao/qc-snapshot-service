@@ -1,12 +1,12 @@
 import os
 import requests
+from config.settings import DEEPSEEK_API_KEY
 from dotenv import load_dotenv
 import pandas as pd
 from typing import Optional
 
-load_dotenv()  # Load environment variables from .env file
+load_dotenv()  # Load environment variables from .env.dev file
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 API_URL = "https://api.deepseek.com/v1/chat/completions"  # Verify this endpoint with DeepSeek's documentation
 
 SECTION_PROMPTS = {

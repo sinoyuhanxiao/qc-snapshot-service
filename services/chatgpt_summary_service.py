@@ -1,12 +1,13 @@
 import os
+from config.settings import OPENAI_API_KEY
 from openai import OpenAI
 from dotenv import load_dotenv
 import pandas as pd
 from typing import Optional
 
-load_dotenv()  # 加载 .env 文件中的环境变量
+load_dotenv()  # 加载 .env.dev 文件中的环境变量
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 SECTION_PROMPTS = {
         "批次合格率趋势": """
