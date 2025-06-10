@@ -9,12 +9,16 @@ from typing import Optional
 from my_requests.ExportPdfRequest import ExportPdfRequest
 from services import summary_service, document_export_service
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+from fastapi.exception_handlers import request_validation_exception_handler
 from utils.utils import clean_float_json
 from fastapi.responses import StreamingResponse
 from services.reporting_service import export_summary_pdf
 from scripts import insert_snapshot_from_mongo
 from loguru import logger
-logger.add("logs/api.log", rotation="1 day", retention="7 days")
+logger.add("logs/api.log", rotation="1 day", retention="7 days", enqueue=True)
 
 app = FastAPI(title="QC Snapshot Summary API")
 
@@ -223,3 +227,22 @@ def export_pdf_report_with_charts(payload: ExportPdfRequest):
 def manual_snapshot_trigger():
     insert_snapshot_from_mongo.run_manual_snapshot()
     return {"message": "Manual snapshot trigger completed"}
+
+@app.exception_handler(RequestValidationError)
+async def custom_validation_exception_handler(request: Request, exc: RequestValidationError):
+    from loguru import logger
+
+    # Truncate each error message safely
+    errors = exc.errors()
+    sanitized_errors = []
+    for err in errors:
+        err_copy = err.copy()
+        msg = str(err_copy.get("msg", ""))
+        if len(msg) > 300:
+            err_copy["msg"] = msg[:300] + "...[truncated]"
+        sanitized_errors.append(err_copy)
+
+    logger.error(f"❌ Validation failed at {request.url}:\n{sanitized_errors}")
+    return await request_validation_exception_handler(request, exc)
+
+
