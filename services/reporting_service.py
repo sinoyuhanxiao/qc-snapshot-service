@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from datetime import datetime
 from dateutil import parser
 
-from services.chatgpt_summary_service import generate_section_summary, generate_overall_summary, SECTION_PROMPTS
+from services.deepseek_summary_service import generate_section_summary, generate_overall_summary, SECTION_PROMPTS
 from utils.translation import COLUMN_TRANSLATIONS
 from sqlalchemy import text
 from db.postgres import pg_engine as engine

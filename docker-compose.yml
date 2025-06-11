@@ -1,7 +1,7 @@
-version: '3.8'
-
 services:
   qc-snapshot-api:
+    build:
+      context: .
     image: qc-snapshot:latest
     container_name: mes-qc-summary-dev
     ports:
