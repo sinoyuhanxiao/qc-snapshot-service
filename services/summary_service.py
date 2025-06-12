@@ -51,7 +51,9 @@ def get_pass_rate_by_day(start_date: Optional[str], end_date: Optional[str],
         ORDER BY base.snapshot_time::date
     """
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 
 # 2. 班组异常对比（大/小组）
 def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
@@ -145,7 +147,9 @@ def get_abnormal_by_team(start_date: Optional[str], end_date: Optional[str],
         ORDER BY pass_rate DESC
     """
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 
 def get_abnormal_ratio_by_field(start_date: Optional[str], end_date: Optional[str],
                                 team_id: Optional[int], shift_id: Optional[int],
@@ -161,19 +165,19 @@ def get_abnormal_ratio_by_field(start_date: Optional[str], end_date: Optional[st
         where.append("b.snapshot_time::date <= :end_date")
 
     if team_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_team st ON i.snapshot_id = st.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_team st ON i.snapshot_id = st.snapshot_id")
         where.append("st.team_id = :team_id")
 
     if shift_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_shift ss ON i.snapshot_id = ss.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_shift ss ON i.snapshot_id = ss.snapshot_id")
         where.append("ss.shift_id = :shift_id")
 
     if product_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_product sp ON i.snapshot_id = sp.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_product sp ON i.snapshot_id = sp.snapshot_id")
         where.append("sp.product_id = :product_id")
 
     if batch_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_batch sb ON i.snapshot_id = sb.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_batch sb ON i.snapshot_id = sb.snapshot_id")
         where.append("sb.batch_id = :batch_id")
 
     join_clause = "\n".join(joins)
@@ -195,7 +199,9 @@ def get_abnormal_ratio_by_field(start_date: Optional[str], end_date: Optional[st
         ORDER BY abnormal_count DESC
     """
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 
 def get_abnormal_ratio_by_field_grouped_other(start_date: Optional[str], end_date: Optional[str],
                                               team_id: Optional[int], shift_id: Optional[int],
@@ -210,16 +216,16 @@ def get_abnormal_ratio_by_field_grouped_other(start_date: Optional[str], end_dat
     if end_date:
         where.append("b.snapshot_time::date <= :end_date")
     if team_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_team st ON i.snapshot_id = st.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_team st ON i.snapshot_id = st.snapshot_id")
         where.append("st.team_id = :team_id")
     if shift_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_shift ss ON i.snapshot_id = ss.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_shift ss ON i.snapshot_id = ss.snapshot_id")
         where.append("ss.shift_id = :shift_id")
     if product_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_product sp ON i.snapshot_id = sp.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_product sp ON i.snapshot_id = sp.snapshot_id")
         where.append("sp.product_id = :product_id")
     if batch_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_batch sb ON i.snapshot_id = sb.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_batch sb ON i.snapshot_id = sb.snapshot_id")
         where.append("sb.batch_id = :batch_id")
 
     join_clause = "\n".join(joins)
@@ -303,7 +309,9 @@ def get_abnormal_heatmap_by_product_date(start_date: Optional[str], end_date: Op
         ORDER BY snapshot_date, sp.product_name
     """
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 
 def get_abnormal_batches_by_product(start_date: Optional[str], end_date: Optional[str],
                             team_id: Optional[int], shift_id: Optional[int],
@@ -354,7 +362,9 @@ def get_abnormal_batches_by_product(start_date: Optional[str], end_date: Optiona
         ORDER BY abnormal_ratio DESC
     """
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 
 def get_inspection_count_by_personnel_field_level(start_date: Optional[str], end_date: Optional[str],
                                                   team_id: Optional[int], shift_id: Optional[int],
@@ -406,7 +416,9 @@ def get_inspection_count_by_personnel_field_level(start_date: Optional[str], end
         ORDER BY inspection_count DESC
     """
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 
 def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
                            team_id: Optional[int], shift_id: Optional[int],
@@ -484,8 +496,9 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
     """
 
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
-
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 def get_kpi_by_inspector(start_date: Optional[str], end_date: Optional[str],
                          team_id: Optional[int], shift_id: Optional[int],
                          product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
@@ -532,7 +545,9 @@ def get_kpi_by_inspector(start_date: Optional[str], end_date: Optional[str],
         ORDER BY forms_submitted DESC
     """
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
 
 def get_retest_records(start_date: Optional[str], end_date: Optional[str],
                        team_id: Optional[int], shift_id: Optional[int],
@@ -574,12 +589,42 @@ def get_retest_records(start_date: Optional[str], end_date: Optional[str],
     """
 
     with engine.connect() as conn:
-        return pd.read_sql(text(sql), conn, params=locals())
+        df = pd.read_sql(text(sql), conn, params=locals())
+        df = fill_nulls_safely(df)
+        return df
+
+def fill_nulls_safely(df: pd.DataFrame) -> pd.DataFrame:
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].fillna("未选择")
+        elif pd.api.types.is_integer_dtype(df[col]):
+            df[col] = df[col].fillna(0)
+        elif pd.api.types.is_float_dtype(df[col]):
+            df[col] = df[col].fillna(0.0)
+        elif pd.api.types.is_bool_dtype(df[col]):
+            df[col] = df[col].fillna(False)
+    return df
 
 
 # ✅ 测试入口
 if __name__ == "__main__":
     import pandas as pd
+    from sqlalchemy import create_engine
+
+    # Hardcoded DB config for testing (use only in development)
+    DB_CONFIG = {
+        'host': "10.10.12.12",
+        'port': 5432,
+        'dbname': "mes",
+        'user': "postgres",
+        'password': "postgres",
+    }
+
+    # Manually construct the connection string
+    DATABASE_URL = f"postgresql+psycopg2://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['dbname']}"
+
+    # Recreate the engine for testing
+    engine = create_engine(DATABASE_URL)
 
     pd.set_option("display.max_rows", None)
     pd.set_option("display.max_columns", None)
@@ -588,8 +633,8 @@ if __name__ == "__main__":
     print("Running summary dashboard query...")
 
     df = get_pass_rate_by_day(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-01",
+        end_date="2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -600,8 +645,8 @@ if __name__ == "__main__":
     print(df)
 
     df2 = get_abnormal_by_team(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-01",
+        end_date="2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -612,8 +657,8 @@ if __name__ == "__main__":
     print(df2)
 
     df3 = get_abnormal_ratio_by_field(
-        "2025-05-01",
-        "2025-05-31",
+        "2025-06-01",
+        "2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -624,8 +669,8 @@ if __name__ == "__main__":
     print(df3)
 
     df4 = get_abnormal_heatmap_by_product_date(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-08",
+        end_date="2025-06-12",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -636,8 +681,8 @@ if __name__ == "__main__":
     print(df4)
 
     df5 = get_abnormal_batches_by_product(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-01",
+        end_date="2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -648,8 +693,8 @@ if __name__ == "__main__":
     print(df5)
 
     df6 = get_inspection_count_by_personnel_field_level(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-01",
+        end_date="2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -660,8 +705,8 @@ if __name__ == "__main__":
     print(df6)
 
     df3_5 = get_abnormal_ratio_by_field_grouped_other(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-01",
+        end_date="2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -672,8 +717,8 @@ if __name__ == "__main__":
     print(df3_5)
 
     df_cards = get_summary_card_stats(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-01",
+        end_date="2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -683,8 +728,8 @@ if __name__ == "__main__":
     print(df_cards)
 
     df_kpi = get_kpi_by_inspector(
-        start_date="2025-05-26",
-        end_date="2025-05-26",
+        start_date="2025-06-26",
+        end_date="2025-06-26",
         team_id=None,
         shift_id=None,
         product_id=None,
@@ -694,8 +739,8 @@ if __name__ == "__main__":
     print(df_kpi)
 
     df_retest = get_retest_records(
-        start_date="2025-05-01",
-        end_date="2025-05-31",
+        start_date="2025-06-01",
+        end_date="2025-06-30",
         team_id=None,
         shift_id=None,
         product_id=None,
