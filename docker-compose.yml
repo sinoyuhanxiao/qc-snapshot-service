@@ -12,6 +12,7 @@ services:
       - ./logs:/app/logs
       - ./backups:/app/backups
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
 
   qc-snapshot-worker:
     image: qc-snapshot:latest
@@ -24,3 +25,4 @@ services:
       - ./logs:/app/logs
       - ./backups:/app/backups
     command: ["python", "-u", "scripts/insert_snapshot_from_mongo.py"]
+    restart: unless-stopped

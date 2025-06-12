@@ -8,8 +8,8 @@ def get_pass_rate_by_day(start_date: Optional[str], end_date: Optional[str],
                          team_id: Optional[int], shift_id: Optional[int],
                          product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     joins = [
-        "JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id",
-        "JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id"
+        "LEFT JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id",
+        "LEFT JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id"
     ]
     where = []
 
@@ -262,8 +262,8 @@ def get_abnormal_heatmap_by_product_date(start_date: Optional[str], end_date: Op
                                           team_id: Optional[int], shift_id: Optional[int],
                                           product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     joins = [
-        "JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id",
-        "JOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id"
+        "LEFT JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id",
+        "LEFT JOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id"
     ]
     where = []
 
@@ -309,9 +309,9 @@ def get_abnormal_batches_by_product(start_date: Optional[str], end_date: Optiona
                             team_id: Optional[int], shift_id: Optional[int],
                             product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     joins = [
-        "JOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id",
-        "JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id",
-        "JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id"
+        "LEFT JOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id",
+        "LEFT JOIN quality_management.qc_snapshot_batch sb ON base.id = sb.snapshot_id",
+        "LEFT JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id"
     ]
     where = []
 
@@ -360,8 +360,8 @@ def get_inspection_count_by_personnel_field_level(start_date: Optional[str], end
                                                   team_id: Optional[int], shift_id: Optional[int],
                                                   product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
     joins = [
-        "JOIN quality_management.qc_snapshot_inspector ins ON base.id = ins.snapshot_id",
-        "JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id"
+        "LEFT JOIN quality_management.qc_snapshot_inspector ins ON base.id = ins.snapshot_id",
+        "LEFT JOIN quality_management.qc_snapshot_item i ON base.id = i.snapshot_id"
     ]
     where = []
 
@@ -411,65 +411,78 @@ def get_inspection_count_by_personnel_field_level(start_date: Optional[str], end
 def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
                            team_id: Optional[int], shift_id: Optional[int],
                            product_id: Optional[int], batch_id: Optional[int]) -> pd.DataFrame:
-    join_clause = """
-        JOIN (
-            SELECT snapshot_id, COUNT(DISTINCT batch_id) AS batch_count
-            FROM quality_management.qc_snapshot_batch
-            GROUP BY snapshot_id
-        ) sb ON base.id = sb.snapshot_id
 
-        JOIN (
-            SELECT snapshot_id, SUM(total_count) AS total_items, SUM(abnormal_count) AS abnormal_items
-            FROM quality_management.qc_snapshot_item
-            GROUP BY snapshot_id
-        ) i ON base.id = i.snapshot_id
+    filters = []
+    joins = []
 
-        JOIN quality_management.qc_snapshot_inspector ins ON base.id = ins.snapshot_id
-    """
-
-    where_clause = []
     if start_date:
-        where_clause.append("base.snapshot_time::date >= :start_date")
+        filters.append("b.snapshot_time::date >= :start_date")
     if end_date:
-        where_clause.append("base.snapshot_time::date <= :end_date")
+        filters.append("b.snapshot_time::date <= :end_date")
     if team_id is not None:
-        join_clause += "\nJOIN quality_management.qc_snapshot_team st ON base.id = st.snapshot_id"
-        where_clause.append("st.team_id = :team_id")
+        joins.append("JOIN quality_management.qc_snapshot_team st ON b.id = st.snapshot_id")
+        filters.append("st.team_id = :team_id")
     if shift_id is not None:
-        join_clause += "\nJOIN quality_management.qc_snapshot_shift ss ON base.id = ss.snapshot_id"
-        where_clause.append("ss.shift_id = :shift_id")
+        joins.append("JOIN quality_management.qc_snapshot_shift ss ON b.id = ss.snapshot_id")
+        filters.append("ss.shift_id = :shift_id")
     if product_id is not None:
-        join_clause += "\nJOIN quality_management.qc_snapshot_product sp ON base.id = sp.snapshot_id"
-        where_clause.append("sp.product_id = :product_id")
+        joins.append("JOIN quality_management.qc_snapshot_product sp ON b.id = sp.snapshot_id")
+        filters.append("sp.product_id = :product_id")
     if batch_id is not None:
-        # this column no longer exists in sb — batch_id isn't passed in the subquery
-        # to filter by batch_id, need to join the full table again
-        join_clause += "\nJOIN quality_management.qc_snapshot_batch sb_filter ON base.id = sb_filter.snapshot_id"
-        where_clause.append("sb_filter.batch_id = :batch_id")
+        joins.append("JOIN quality_management.qc_snapshot_batch sb_filter ON b.id = sb_filter.snapshot_id")
+        filters.append("sb_filter.batch_id = :batch_id")
 
-    where_sql = " AND ".join(where_clause) if where_clause else "1=1"
+    join_clause = "\n".join(joins)
+    where_clause = " AND ".join(filters) if filters else "1=1"
 
     sql = f"""
+        WITH filtered_snapshots AS (
+            SELECT DISTINCT b.id AS snapshot_id
+            FROM quality_management.qc_snapshot_base b
+            {join_clause}
+            WHERE {where_clause}
+        ),
+        valid_batches AS (
+            SELECT DISTINCT sb.batch_id
+            FROM filtered_snapshots fs
+            JOIN quality_management.qc_snapshot_batch sb ON fs.snapshot_id = sb.snapshot_id
+            WHERE sb.batch_id IS NOT NULL
+        ),
+        abnormal_batches AS (
+            SELECT DISTINCT sb.batch_id
+            FROM filtered_snapshots fs
+            JOIN quality_management.qc_snapshot_batch sb ON fs.snapshot_id = sb.snapshot_id
+            JOIN quality_management.qc_snapshot_item i ON fs.snapshot_id = i.snapshot_id
+            WHERE i.abnormal_count > 0
+        ),
+        item_stats AS (
+            SELECT 
+                SUM(i.total_count) AS total_items,
+                SUM(i.abnormal_count) AS abnormal_items
+            FROM filtered_snapshots fs
+            JOIN quality_management.qc_snapshot_item i ON fs.snapshot_id = i.snapshot_id
+        ),
+        personnel_stats AS (
+            SELECT COUNT(DISTINCT ins.inspector_id) AS total_personnel
+            FROM filtered_snapshots fs
+            JOIN quality_management.qc_snapshot_inspector ins ON fs.snapshot_id = ins.snapshot_id
+        )
         SELECT 
-            SUM(sb.batch_count) AS total_batches,
-            SUM(
-                CASE WHEN i.abnormal_items > 0 THEN sb.batch_count ELSE 0 END
-            ) AS abnormal_batches,
+            (SELECT COUNT(*) FROM valid_batches) AS total_batches,
+            (SELECT COUNT(*) FROM abnormal_batches) AS abnormal_batches,
             ROUND(
-                1.0 - SUM(
-                    CASE WHEN i.abnormal_items > 0 THEN sb.batch_count ELSE 0 END
-                )::decimal / NULLIF(SUM(sb.batch_count), 0), 4
+                1.0 - (SELECT COUNT(*) FROM abnormal_batches)::decimal / 
+                NULLIF((SELECT COUNT(*) FROM valid_batches), 0), 4
             ) AS batch_pass_rate,
-            COUNT(DISTINCT ins.inspector_id) AS total_personnel,
-            SUM(i.total_items) AS total_items,
-            SUM(i.abnormal_items) AS abnormal_items,
+            (SELECT total_personnel FROM personnel_stats) AS total_personnel,
+            (SELECT total_items FROM item_stats) AS total_items,
+            (SELECT abnormal_items FROM item_stats) AS abnormal_items,
             ROUND(
-                1.0 - SUM(i.abnormal_items)::decimal / NULLIF(SUM(i.total_items), 0), 4
+                1.0 - (SELECT abnormal_items FROM item_stats)::decimal / 
+                NULLIF((SELECT total_items FROM item_stats), 0), 4
             ) AS item_pass_rate
-        FROM quality_management.qc_snapshot_base base
-        {join_clause}
-        WHERE {where_sql}
     """
+
     with engine.connect() as conn:
         return pd.read_sql(text(sql), conn, params=locals())
 
