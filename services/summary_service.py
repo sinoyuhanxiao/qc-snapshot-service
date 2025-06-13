@@ -432,16 +432,16 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
     if end_date:
         filters.append("b.snapshot_time::date <= :end_date")
     if team_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_team st ON b.id = st.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_team st ON b.id = st.snapshot_id")
         filters.append("st.team_id = :team_id")
     if shift_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_shift ss ON b.id = ss.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_shift ss ON b.id = ss.snapshot_id")
         filters.append("ss.shift_id = :shift_id")
     if product_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_product sp ON b.id = sp.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_product sp ON b.id = sp.snapshot_id")
         filters.append("sp.product_id = :product_id")
     if batch_id is not None:
-        joins.append("JOIN quality_management.qc_snapshot_batch sb_filter ON b.id = sb_filter.snapshot_id")
+        joins.append("LEFT JOIN quality_management.qc_snapshot_batch sb_filter ON b.id = sb_filter.snapshot_id")
         filters.append("sb_filter.batch_id = :batch_id")
 
     join_clause = "\n".join(joins)
@@ -497,7 +497,6 @@ def get_summary_card_stats(start_date: Optional[str], end_date: Optional[str],
 
     with engine.connect() as conn:
         df = pd.read_sql(text(sql), conn, params=locals())
-        df = fill_nulls_safely(df)
         return df
 def get_kpi_by_inspector(start_date: Optional[str], end_date: Optional[str],
                          team_id: Optional[int], shift_id: Optional[int],
@@ -620,6 +619,14 @@ if __name__ == "__main__":
         'password': "postgres",
     }
 
+    DB_CONFIG = {
+        'host': "10.10.60.212",
+        'port': 5432,
+        'dbname': "mes_prod",
+        'user': "postgres",
+        'password': "postgres",
+    }
+
     # Manually construct the connection string
     DATABASE_URL = f"postgresql+psycopg2://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['dbname']}"
 
@@ -717,9 +724,9 @@ if __name__ == "__main__":
     print(df3_5)
 
     df_cards = get_summary_card_stats(
-        start_date="2025-06-01",
-        end_date="2025-06-30",
-        team_id=None,
+        start_date="2025-06-08",
+        end_date="2025-06-12",
+        team_id=152,
         shift_id=None,
         product_id=None,
         batch_id=None
