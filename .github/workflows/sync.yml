@@ -1,0 +1,35 @@
+name: Sync Fork (master & dev)
+
+on:
+  schedule:
+    - cron: '0 1 * * *'     # Daily at 01:00 UTC
+  workflow_dispatch:         # Allow manual run
+
+jobs:
+  sync-master:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync master branch
+        uses: tgymnich/fork-sync@v1.8
+        with:
+          owner: erikyu01
+          repo: qc-snapshot-service
+          base: master
+          head: master
+          ignore_fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sync-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync dev branch
+        uses: tgymnich/fork-sync@v1.8
+        with:
+          owner: erikyu01
+          repo: qc-snapshot-service
+          base: dev
+          head: dev
+          ignore_fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
