@@ -2,6 +2,11 @@
 
 import psycopg2
 from config.db_config import DB_CONFIG
+from sqlalchemy import create_engine
+
+pg_engine = create_engine(
+    f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['dbname']}"
+)
 
 def get_postgres_connection():
     """Establish and return a PostgreSQL connection."""

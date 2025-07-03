@@ -1,0 +1,9 @@
+# Ignore venv and pycache
+venv/
+__pycache__/
+*.pyc
+.idea/
+.env.dev
+assets/test/
+assets/reports/
+dist/
