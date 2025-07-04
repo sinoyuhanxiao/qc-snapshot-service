@@ -29,5 +29,8 @@ def get_recent_qc_collections(minutes: int):
     ]
     return collections
 
+def clean_float_json(df):
+    return df.fillna(0).replace([float('inf'), float('-inf')], 0).to_dict(orient="records")
+
 if __name__ == "__main__":
     print(get_relevant_collection_suffixes(1000000))

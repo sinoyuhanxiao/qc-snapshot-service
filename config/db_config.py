@@ -1,11 +1,16 @@
-# config/db_config.py
+import os
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
+# load_dotenv(dotenv_path=".env.dev") # for running on dev
 
 DB_CONFIG = {
-    'host': '10.10.12.12',
-    'port': 5432,
-    'dbname': 'mes',
-    'user': 'postgres',
-    'password': 'postgres'
+    'host': os.getenv("PG_HOST"),
+    'port': int(os.getenv("PG_PORT", "5432")),
+    'dbname': os.getenv("PG_DBNAME"),
+    'user': os.getenv("PG_USER"),
+    'password': os.getenv("PG_PASSWORD"),
 }
 
-MONGO_URI = "mongodb://root:password@10.10.12.12:27017/dev-mes-qc?authSource=admin"
+MONGO_URI = os.getenv("MONGO_URI")
