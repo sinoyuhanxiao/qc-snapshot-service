@@ -10,10 +10,10 @@ from datetime import datetime
 from dateutil import parser
 
 from services.deepseek_summary_service import generate_section_summary, generate_overall_summary, SECTION_PROMPTS
-from utils.translation import COLUMN_TRANSLATIONS
 from sqlalchemy import text
 from db.postgres import pg_engine as engine
 import os
+from utils.i18n import translate
 
 EXCLUDED_COLUMNS = {
     "card_df": [],
@@ -29,19 +29,20 @@ def apply_exclusions(df: pd.DataFrame, key: str) -> pd.DataFrame:
     return df.drop(columns=exclude, errors="ignore")
 
 class PDF(FPDF):
-    def __init__(self):
+    def __init__(self, lang="zh"):
         super().__init__()
+        self.lang = lang
         self.add_font("SimHei", "", os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "simhei.ttf"))
         self.set_font("SimHei", size=12)
         self.set_auto_page_break(auto=True, margin=15)
 
     def header(self):
         # insert logo
-        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "sv_logo.png")
+        logo_path = os.path.join(os.path.dirname(__file__), "..", "assets", "images", "fps_logo.png")
         self.image(logo_path, x=10, y=8, w=25)
 
         self.set_font("SimHei", size=16)
-        self.cell(0, 10, "质量汇总分析报告", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        self.cell(0, 10, translate("report_title", self.lang), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
         self.set_font("SimHei", size=10)
         # self.cell(0, 10, f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
 
@@ -58,8 +59,7 @@ class PDF(FPDF):
 
         # Header
         for i, col in enumerate(df.columns):
-            col_cn = COLUMN_TRANSLATIONS.get(col, col) # apply translation
-            self.cell(col_widths[i], 8, str(col_cn), border=1, align="C")
+            self.cell(col_widths[i], 8, translate(col, self.lang), border=1, align="C")
         self.ln()
 
         # Rows
@@ -78,9 +78,10 @@ def export_summary_pdf(output_path=None,
                        product_id=None,
                        batch_id=None,
                        timezone=None,
-                       chart_paths: Optional[dict] = None):
+                       chart_paths: Optional[dict] = None,
+                       lang: str = "zh"):
 
-    pdf = PDF()
+    pdf = PDF(lang=lang)
     pdf.add_page()
 
     localized_start = (
@@ -88,30 +89,30 @@ def export_summary_pdf(output_path=None,
         .astimezone(ZoneInfo("UTC"))
         .astimezone(ZoneInfo(timezone))
         .strftime("%Y-%m-%d")
-    ) if start_date else "未指定"
+    ) if start_date else translate("not_specified", lang)
 
     localized_end = (
         parser.isoparse(end_date)
         .astimezone(ZoneInfo("UTC"))
         .astimezone(ZoneInfo(timezone))
         .strftime("%Y-%m-%d")
-    ) if end_date else "未指定"
+    ) if end_date else translate("not_specified", lang)
 
     # filter display
     filter_lines = []
     if start_date or end_date:
-        filter_lines.append(f"时间范围：{localized_start or '未指定'} 至 {localized_end or '未指定'}")
+        filter_lines.append(f"{translate('time_range', lang)}：{localized_start or translate('not_specified', lang)} {translate('to', lang)} {localized_end or translate('not_specified', lang)}")
 
     names = get_filter_names(team_id=team_id, shift_id=shift_id, product_id=product_id, batch_id=batch_id)
 
     if team_id and names.get('team_name'):
-        filter_lines.append(f"班组：{names['team_name']}")
+        filter_lines.append(f"{translate('team', lang)}：{names['team_name']}")
     if shift_id and names.get('shift_name'):
-        filter_lines.append(f"班次：{names['shift_name']}")
+        filter_lines.append(f"{translate('shift', lang)}：{names['shift_name']}")
     if product_id and names.get('product_name'):
-        filter_lines.append(f"产品：{names['product_name']}")
+        filter_lines.append(f"{translate('product', lang)}：{names['product_name']}")
     if batch_id and names.get('batch_code'):
-        filter_lines.append(f"批次：{names['batch_code']}")
+        filter_lines.append(f"{translate('batch', lang)}：{names['batch_code']}")
 
     # 拼接过滤条件句子
     pdf.set_font("SimHei", size=10)
@@ -119,13 +120,13 @@ def export_summary_pdf(output_path=None,
 
     filter_parts = []
     if team_id and names.get('team_name'):
-        filter_parts.append(f"班组：{names['team_name']}")
+        filter_parts.append(f"{translate('team', lang)}：{names['team_name']}")
     if shift_id and names.get('shift_name'):
-        filter_parts.append(f"班次：{names['shift_name']}")
+        filter_parts.append(f"{translate('shift', lang)}：{names['shift_name']}")
     if product_id and names.get('product_name'):
-        filter_parts.append(f"产品：{names['product_name']}")
+        filter_parts.append(f"{translate('product', lang)}：{names['product_name']}")
     if batch_id and names.get('batch_code'):
-        filter_parts.append(f"批次：{names['batch_code']}")
+        filter_parts.append(f"{translate('batch', lang)}：{names['batch_code']}")
 
     # 判断是否有任何筛选条件
     has_filters = any([
@@ -141,7 +142,7 @@ def export_summary_pdf(output_path=None,
         # 打印时间范围（单独一行）
         if start_date or end_date:
             pdf.set_font("SimHei", size=10)
-            time_range_text = f"时间范围：{localized_start or '未指定'} 至 {localized_end or '未指定'}"
+            time_range_text = f"{translate('time_range', lang)}：{localized_start or translate('not_specified', lang)} {translate('to', lang)} {localized_end or translate('not_specified', lang)}"
             pdf.set_x((210 - pdf.get_string_width(time_range_text)) / 2)  # 居中
             pdf.cell(pdf.get_string_width(time_range_text), 8, time_range_text, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             # pdf.ln(2)
@@ -149,13 +150,13 @@ def export_summary_pdf(output_path=None,
         # 打印其他筛选条件（字段名常规大小，字段值加大字体）
         filter_parts = []
         if team_id and names.get('team_name'):
-            filter_parts.append(f"班组：{names['team_name']}")
+            filter_parts.append(f"{translate('team', lang)}：{names['team_name']}")
         if shift_id and names.get('shift_name'):
-            filter_parts.append(f"班次：{names['shift_name']}")
+            filter_parts.append(f"{translate('shift', lang)}：{names['shift_name']}")
         if product_id and names.get('product_name'):
-            filter_parts.append(f"产品：{names['product_name']}")
+            filter_parts.append(f"{translate('product', lang)}：{names['product_name']}")
         if batch_id and names.get('batch_code'):
-            filter_parts.append(f"批次：{names['batch_code']}")
+            filter_parts.append(f"{translate('batch', lang)}：{names['batch_code']}")
 
         # 计算总宽度并居中
         total_width = 0
@@ -182,7 +183,7 @@ def export_summary_pdf(output_path=None,
     else:
         # 无任何筛选条件，打印说明文字
         pdf.set_font("SimHei", size=10)
-        msg = "(未设置筛选条件，默认展示全部数据)"
+        msg = f"({translate('no_filters', lang)})"
         pdf.set_x((210 - pdf.get_string_width(msg)) / 2)
         pdf.cell(pdf.get_string_width(msg), 8, msg, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
@@ -216,48 +217,48 @@ def export_summary_pdf(output_path=None,
 
 
     # 汇总卡片数据
-    pdf.add_section_title("总体情况")
+    pdf.add_section_title(translate("overall_situation", lang))
     card_df = summary_service.get_summary_card_stats(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(card_df, "card_df"))
 
     # 1. 批次合格率趋势
-    pdf.add_section_title("批次合格率趋势")
+    pdf.add_section_title(translate("pass_rate_trend", lang))
     if chart_paths and chart_paths.get("pass_rate"):
         pdf.image(chart_paths["pass_rate"], x=pdf.get_x(), w=190)
     pdf.ln(5)
     df1 = summary_service.get_pass_rate_by_day(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df1, "df1"))
-    summary_1 = generate_section_summary(df1, SECTION_PROMPTS["批次合格率趋势"])
+    summary_1 = generate_section_summary(df1, SECTION_PROMPTS["批次合格率趋势"], lang=lang)
     pdf.set_font("SimHei", size=10)
-    pdf.multi_cell(0, 8, f"AI分析：\n{summary_1}")
+    pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_1}")
     pdf.add_page()
 
     # 2. 班组异常字段对比
-    pdf.add_section_title("班组异常对比")
+    pdf.add_section_title(translate("abnormal_by_team", lang))
     if chart_paths and chart_paths.get("abnormal_by_team"):
         pdf.image(chart_paths["abnormal_by_team"], x=pdf.get_x(), w=190)
     pdf.ln(5)
     df2 = summary_service.get_abnormal_by_team(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df2, "df2"))
-    summary_2 = generate_section_summary(df2, SECTION_PROMPTS["班组异常对比"])
+    summary_2 = generate_section_summary(df2, SECTION_PROMPTS["班组异常对比"], lang=lang)
     pdf.set_font("SimHei", size=10)
-    pdf.multi_cell(0, 8, f"AI分析：\n{summary_2}")
+    pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_2}")
     pdf.add_page()
 
     # 3. 异常类型分布
-    pdf.add_section_title("异常类型分布")
+    pdf.add_section_title(translate("abnormal_ratio", lang))
     if chart_paths and chart_paths.get("abnormal_ratio"):
         pdf.image(chart_paths["abnormal_ratio"], x=pdf.get_x(), w=190)
     pdf.ln(5)
     df3 = summary_service.get_abnormal_ratio_by_field(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df3, "df3"))
-    summary_3 = generate_section_summary(df3, SECTION_PROMPTS["异常类型分布"])
+    summary_3 = generate_section_summary(df3, SECTION_PROMPTS["异常类型分布"], lang=lang)
     pdf.set_font("SimHei", size=10)
-    pdf.multi_cell(0, 8, f"AI分析：\n{summary_3}")
+    pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_3}")
     pdf.add_page()
 
     # 4. 产品异常批次统计
-    pdf.add_section_title("产品异常批次统计")
+    pdf.add_section_title(translate("abnormal_batches_by_product", lang))
     if chart_paths and chart_paths.get("abnormal_batches_by_product"):
         pdf.image(chart_paths["abnormal_batches_by_product"], x=pdf.get_x(), w=190)
     pdf.ln(5)
@@ -273,25 +274,25 @@ def export_summary_pdf(output_path=None,
         else:
             col_widths.append(default_width - (20 / (col_count - 1)))  # 平均补偿其余列
     pdf.add_table(df4, col_widths=col_widths)
-    summary_4 = generate_section_summary(df4, SECTION_PROMPTS["产品异常批次统计"])
+    summary_4 = generate_section_summary(df4, SECTION_PROMPTS["产品异常批次统计"], lang=lang)
     pdf.set_font("SimHei", size=10)
-    pdf.multi_cell(0, 8, f"AI分析：\n{summary_4}")
+    pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_4}")
     pdf.add_page()
 
     # 6. 人员检测 KPI
-    pdf.add_section_title("质检人员 KPI")
+    pdf.add_section_title(translate("kpi_by_inspector", lang))
     if chart_paths and chart_paths.get("kpi_by_inspector"):
         pdf.image(chart_paths["kpi_by_inspector"], x=pdf.get_x(), w=190)
     pdf.ln(5)
     df5 = summary_service.get_kpi_by_inspector(start_date, end_date, team_id, shift_id, product_id, batch_id)
     pdf.add_table(apply_exclusions(df5, "df5"))
-    summary_5 = generate_section_summary(df5, SECTION_PROMPTS["质检人员 KPI"])
+    summary_5 = generate_section_summary(df5, SECTION_PROMPTS["质检人员 KPI"], lang=lang)
     pdf.set_font("SimHei", size=10)
-    pdf.multi_cell(0, 8, f"AI分析：\n{summary_5}")
+    pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_5}")
     pdf.add_page()
 
     # 7. 需复检清单
-    pdf.add_section_title("需复检列表")
+    pdf.add_section_title(translate("retest_list", lang))
     df7 = summary_service.get_retest_records(start_date, end_date, team_id, shift_id, product_id, batch_id)
     df7 = apply_exclusions(df7, "df7")
     col_count = len(df7.columns)
@@ -303,26 +304,26 @@ def export_summary_pdf(output_path=None,
         else:
             col_widths.append(default_width - (40 / (col_count - 2)))  # 平均补偿其余列
     pdf.add_table(df7, col_widths=col_widths)
-    summary_7 = generate_section_summary(df7, SECTION_PROMPTS["需复检列表"])
+    summary_7 = generate_section_summary(df7, SECTION_PROMPTS["需复检列表"], lang=lang)
     pdf.set_font("SimHei", size=10)
-    pdf.multi_cell(0, 8, f"AI分析：\n{summary_7}")
+    pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_7}")
     pdf.add_page()
 
     # 8. 汇总部分
     filtered_data = {
-        "总体情况": card_df,
-        "批次合格率趋势": df1,
-        "班组异常字段对比": df2,
-        "异常类型分布": df3,
-        "产品异常批次统计": df4,
-        "质检人员 KPI": df5, # leave df6 empty for now 产品 x 日期热力图
-        "需复检列表": df7
+        translate("overall_situation", lang): card_df,
+        translate("pass_rate_trend", lang): df1,
+        translate("abnormal_by_team", lang): df2,
+        translate("abnormal_ratio", lang): df3,
+        translate("abnormal_batches_by_product", lang): df4,
+        translate("kpi_by_inspector", lang): df5, # leave df6 empty for now 产品 x 日期热力图
+        translate("retest_list", lang): df7
     }
 
-    summary_text = generate_overall_summary(filtered_data)
+    summary_text = generate_overall_summary(filtered_data, lang=lang)
 
     if summary_text:
-        pdf.add_section_title("AI整体总结")
+        pdf.add_section_title(translate("ai_overall_summary", lang))
         pdf.set_font("SimHei", size=10)
 
         # 清洗掉 GPT 输出中的不兼容字符

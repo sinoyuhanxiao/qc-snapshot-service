@@ -52,11 +52,16 @@ def _call_deepseek_api(prompt: str) -> str:
         raise Exception(f"DeepSeek API request failed: {str(e)}")
 
 
-def generate_section_summary(df: pd.DataFrame, prompt: str) -> Optional[str]:
+def generate_section_summary(df: pd.DataFrame, prompt: str, lang: str = "zh") -> Optional[str]:
     if df.empty:
-        return "无数据可供分析"
+        return "N/A"
 
     preview = df.head(5).to_string(index=False)
+
+    if lang == "en":
+        language_instruction = "请用英文书写"
+    else:
+        language_instruction = "请用中文书写"
 
     full_prompt = f"""
         你是一个质量分析总结助手。请根据以下部分数据生成中文汇总段落, 注意格式上不要出现大空格和括号：
@@ -66,7 +71,7 @@ def generate_section_summary(df: pd.DataFrame, prompt: str) -> Optional[str]:
         {preview}
 
         要求：
-        - 使用正式中文
+        - {language_instruction}
         - 生成一段3-6句的总结文字
         - 用很具体数据逻辑支持你的分析，不要泛泛而谈
         """
@@ -76,7 +81,7 @@ def generate_section_summary(df: pd.DataFrame, prompt: str) -> Optional[str]:
     return cleaned_text
 
 
-def generate_overall_summary(filtered_data: dict) -> str:
+def generate_overall_summary(filtered_data: dict, lang: str = "zh") -> str:
     """
     Accepts a dictionary with filtered QC data (e.g., card_df, df1, df2, ...)
     Converts it into a natural language prompt and generates a Chinese 3-sentence summary.
@@ -85,15 +90,19 @@ def generate_overall_summary(filtered_data: dict) -> str:
     if all(df.empty for df in filtered_data.values()):
         return ""  # No data → no summary
 
-    # Compose a human-readable summary input
     summary_text = ""
     for section, df in filtered_data.items():
         if not df.empty:
             summary_text += f"\n【{section}】\n{df.head(5).to_string(index=False)}\n"
 
+    if lang == "en":
+        language_instruction = "请用英文书写"
+    else:
+        language_instruction = "请用中文书写"
+
     prompt = f"""
-        你是一个质量分析总结助手。以下是来自多个质量管理模块的部分数据内容，请你用正式中文语言总结一段三段话的汇总报告，必须要有理有据，可用于管理层质量分析汇报，不需要用markdown格式。
-        如果没有数据，请直接给出"无数据可供分析"即可。
+        你是一个质量分析总结助手。以下是来自多个质量管理模块的部分数据内容，请你总结一段三段话的汇总报告，必须要有理有据，可用于管理层质量分析汇报，不需要用markdown格式。
+        如果没有数据，请直接给出"N/A"即可。
 
         请从以下三个角度展开撰写三段话：
         1. 整体质量水平：例如合格率趋势、异常数量变化。
@@ -104,7 +113,7 @@ def generate_overall_summary(filtered_data: dict) -> str:
         {summary_text}
 
         要求：
-        - 使用中文书写
+        - {language_instruction}
         - 三段话，每段不少于一句
         - 用正式但易懂的语言表达，有理有据
     """
