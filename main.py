@@ -3,7 +3,7 @@ import base64
 import tempfile
 from datetime import datetime
 
-from fastapi import FastAPI, Query, Body
+from fastapi import FastAPI, Query, Body, Header
 from typing import Optional
 
 from my_requests.ExportPdfRequest import ExportPdfRequest
@@ -189,8 +189,16 @@ def export_documents(
     }
 
 @app.post("/summary/export-pdf-report")
-def export_pdf_report_with_charts(payload: ExportPdfRequest):
+def export_pdf_report_with_charts(payload: ExportPdfRequest, accept_language: Optional[str] = Header(None)):
     chart_paths = {}
+
+    # Determine language from Accept-Language header
+    lang = "zh"
+    if accept_language:
+        if accept_language.lower().startswith("en"):
+            lang = "en"
+        elif accept_language.lower().startswith("zh"):
+            lang = "zh"
 
     for key, base64_data in payload.charts.items():
         if not base64_data.startswith("data:image"):
@@ -211,7 +219,8 @@ def export_pdf_report_with_charts(payload: ExportPdfRequest):
         product_id=payload.product_id,
         batch_id=payload.batch_id,
         timezone=payload.timezone,
-        chart_paths=chart_paths
+        chart_paths=chart_paths,
+        lang=lang
     )
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
