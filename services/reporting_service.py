@@ -238,11 +238,23 @@ def export_summary_pdf(output_path=None,
     if chart_paths and chart_paths.get("abnormal_by_team"):
         pdf.image(chart_paths["abnormal_by_team"], x=pdf.get_x(), w=190)
     pdf.ln(5)
+
     df2 = summary_service.get_abnormal_by_team(start_date, end_date, team_id, shift_id, product_id, batch_id)
-    pdf.add_table(apply_exclusions(df2, "df2"))
+    df2 = apply_exclusions(df2, "df2")
+
+    col_count = len(df2.columns)
+    default_width = 190 / col_count
+    col_widths = [
+        default_width + 15 if col == "team_name"
+        else default_width - 15 / (col_count - 1)
+        for col in df2.columns
+    ]
+    pdf.add_table(df2, col_widths=col_widths)
+
     summary_2 = generate_section_summary(df2, SECTION_PROMPTS["班组异常对比"], lang=lang)
     pdf.set_font("SimHei", size=10)
     pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_2}")
+
     pdf.add_page()
 
     # 3. 异常类型分布
@@ -250,11 +262,24 @@ def export_summary_pdf(output_path=None,
     if chart_paths and chart_paths.get("abnormal_ratio"):
         pdf.image(chart_paths["abnormal_ratio"], x=pdf.get_x(), w=190)
     pdf.ln(5)
+
     df3 = summary_service.get_abnormal_ratio_by_field(start_date, end_date, team_id, shift_id, product_id, batch_id)
-    pdf.add_table(apply_exclusions(df3, "df3"))
+    df3 = apply_exclusions(df3, "df3")
+
+    col_count = len(df3.columns)
+    extra = 30.0
+    base = 190.0 / col_count
+    col_widths = [
+        base + extra if col == "label"
+        else base - extra / (col_count - 1)
+        for col in df3.columns
+    ]
+    pdf.add_table(df3, col_widths=col_widths)
+
     summary_3 = generate_section_summary(df3, SECTION_PROMPTS["异常类型分布"], lang=lang)
     pdf.set_font("SimHei", size=10)
     pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_3}")
+
     pdf.add_page()
 
     # 4. 产品异常批次统计
@@ -284,8 +309,20 @@ def export_summary_pdf(output_path=None,
     if chart_paths and chart_paths.get("kpi_by_inspector"):
         pdf.image(chart_paths["kpi_by_inspector"], x=pdf.get_x(), w=190)
     pdf.ln(5)
+
     df5 = summary_service.get_kpi_by_inspector(start_date, end_date, team_id, shift_id, product_id, batch_id)
-    pdf.add_table(apply_exclusions(df5, "df5"))
+    df5 = apply_exclusions(df5, "df5")
+
+    col_count = len(df5.columns)
+    extra = 20.0
+    base = 190.0 / col_count
+    col_widths = [
+        base + extra if col == "inspector_name"
+        else base - extra / (col_count - 1)
+        for col in df5.columns
+    ]
+    pdf.add_table(df5, col_widths=col_widths)
+
     summary_5 = generate_section_summary(df5, SECTION_PROMPTS["质检人员 KPI"], lang=lang)
     pdf.set_font("SimHei", size=10)
     pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_5}")
@@ -295,15 +332,17 @@ def export_summary_pdf(output_path=None,
     pdf.add_section_title(translate("retest_list", lang))
     df7 = summary_service.get_retest_records(start_date, end_date, team_id, shift_id, product_id, batch_id)
     df7 = apply_exclusions(df7, "df7")
+
     col_count = len(df7.columns)
-    default_width = 190 / col_count
-    col_widths = []
-    for col in df7.columns:
-        if col in ["qc_form_template_name", "related_products"]:
-            col_widths.append(default_width + 20)  # 表单名称与产品列加宽
-        else:
-            col_widths.append(default_width - (40 / (col_count - 2)))  # 平均补偿其余列
+    extra = 20.0
+    base = 190.0 / col_count
+    col_widths = [
+        base + extra if col == "qc_form_template_name"
+        else base - extra / (col_count - 1)
+        for col in df7.columns
+    ]
     pdf.add_table(df7, col_widths=col_widths)
+
     summary_7 = generate_section_summary(df7, SECTION_PROMPTS["需复检列表"], lang=lang)
     pdf.set_font("SimHei", size=10)
     pdf.multi_cell(0, 8, f"{translate('ai_analysis', lang)}：\n{summary_7}")
