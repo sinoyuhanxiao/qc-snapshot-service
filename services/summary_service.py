@@ -2,6 +2,7 @@ from typing import Optional
 from sqlalchemy import text
 import pandas as pd
 from db.postgres import pg_engine as engine
+from utils.i18n import translate
 
 # 1. 批次合格率每日趋势
 def get_pass_rate_by_day(start_date: Optional[str], end_date: Optional[str],
@@ -255,7 +256,7 @@ def get_abnormal_ratio_by_field_grouped_other(start_date: Optional[str], end_dat
         other_sum = below_20['abnormal_count'].sum()
         other_row = pd.DataFrame([{
             'key': None,
-            'label': '其他',
+            'label': 'Others',
             'abnormal_count': other_sum
         }])
         result_df = pd.concat([above_20, other_row], ignore_index=True)
