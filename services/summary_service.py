@@ -596,7 +596,7 @@ def get_retest_records(start_date: Optional[str], end_date: Optional[str],
 def fill_nulls_safely(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         if df[col].dtype == "object":
-            df[col] = df[col].fillna("未选择")
+            df[col] = df[col].fillna("N/A")
         elif pd.api.types.is_integer_dtype(df[col]):
             df[col] = df[col].fillna(0)
         elif pd.api.types.is_float_dtype(df[col]):
