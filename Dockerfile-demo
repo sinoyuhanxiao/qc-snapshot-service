@@ -22,7 +22,6 @@ COPY --from=builder /root/.local /root/.local
 COPY --from=builder /app /app
 
 # 支持 build-arg 动态注入 .env
-# TODO: switch between different env
 ARG ENV_FILE=.env.demo
 COPY ${ENV_FILE} .env
 ENV ENV_FILE=.env

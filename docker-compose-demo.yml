@@ -5,7 +5,7 @@ services:
   qc-snapshot-api:
     build:
       context: .
-      dockerfile: Dockerfile.demo
+      dockerfile: Dockerfile-demo
     image: qc-snapshot:latest
     container_name: mes-qc-summary-dev-demo
     ports:
